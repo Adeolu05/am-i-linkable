@@ -17,6 +17,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const DATA_DIR = path.join(REPO_ROOT, "data");
 const CACHE_DIR = path.join(DATA_DIR, "cache", "3xpl-zcash-main");
 const OUT_DIR = path.join(DATA_DIR, "spike");
+const DUST_ZAT = 100_000n;
 
 function loadEnv() {
   for (const file of [path.join(REPO_ROOT, "indexer", ".env"), path.join(REPO_ROOT, ".env")]) {
@@ -123,15 +124,22 @@ async function main() {
 
   // Teaser for the matching work: unshields whose exact amount was shielded
   // earlier in the same window. Exact-amount round trips are the easiest links.
-  const shieldedAmounts = new Map<string, number>();
-  for (const e of shield) {
-    const prev = shieldedAmounts.get(e.amountZat);
-    if (prev === undefined || e.blockHeight < prev) shieldedAmounts.set(e.amountZat, e.blockHeight);
-  }
-  const exactRoundTrips = unshield.filter((e) => {
-    const h = shieldedAmounts.get(e.amountZat);
-    return h !== undefined && h < e.blockHeight;
-  }).length;
+  const exactRoundTrips = (pool: TurnstileEvent[]) => {
+    const shieldedAmounts = new Map<string, number>();
+    for (const e of pool.filter((e) => e.direction === "in")) {
+      const prev = shieldedAmounts.get(e.amountZat);
+      if (prev === undefined || e.blockHeight < prev) shieldedAmounts.set(e.amountZat, e.blockHeight);
+    }
+    return pool.filter((e) => {
+      if (e.direction !== "out") return false;
+      const h = shieldedAmounts.get(e.amountZat);
+      return h !== undefined && h < e.blockHeight;
+    }).length;
+  };
+  // Dust (net of fee at most 0.001 ZEC) dominates unshield counts and its
+  // repeated amounts swamp exact-amount matching, so report it separately.
+  const isDust = (e: TurnstileEvent) => BigInt(e.amountZat) - BigInt(e.feeZat) <= DUST_ZAT;
+  const nonDust = events.filter((e) => !isDust(e));
 
   const addresses = new Set(events.flatMap((e) => [...e.transparentInputs, ...e.transparentOutputs].map((l) => l.address)));
 
@@ -141,13 +149,22 @@ async function main() {
     blocks: { from, to: tip, count, firstTime, lastTime },
     requests: client.requestCount,
     transactions: classCounts,
-    events: { total: events.length, shield: shield.length, unshield: unshield.length },
+    events: {
+      total: events.length,
+      shield: shield.length,
+      unshield: unshield.length,
+      dustShield: shield.filter(isDust).length,
+      dustUnshield: unshield.filter(isDust).length,
+    },
     perPool,
     distinctTransparentAddresses: addresses.size,
-    exactAmountRoundTripCandidates: exactRoundTrips,
+    exactAmountRoundTripCandidates: {
+      all: exactRoundTrips(events),
+      excludingDust: exactRoundTrips(nonDust),
+    },
     unknownPseudoAddresses: [...unknown],
   };
-  const examples = [...shield.slice(0, 3), ...unshield.slice(0, 3)];
+  const examples = [...shield.slice(0, 3), ...unshield.filter((e) => !isDust(e)).slice(0, 3)];
 
   await writeFile(path.join(OUT_DIR, "summary.json"), JSON.stringify(summary, null, 2));
   await writeFile(path.join(OUT_DIR, "turnstile-events.json"), JSON.stringify(events, null, 2));
