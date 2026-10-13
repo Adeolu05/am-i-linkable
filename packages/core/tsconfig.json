@@ -1,7 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    // Node types are for the tests only; library code must stay browser-safe.
+    "types": ["node"]
   },
   "include": ["src"]
 }
