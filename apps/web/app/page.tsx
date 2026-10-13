@@ -1,6 +1,6 @@
 export default function Home() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col justify-center gap-6 px-4 py-16">
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-4 py-16">
       <p className="font-mono text-sm uppercase tracking-widest text-amber-700 dark:text-amber-400">
         Zcash privacy check
       </p>
