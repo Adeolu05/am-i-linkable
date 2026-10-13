@@ -101,3 +101,33 @@ leave one pool (only the fee does). Splitting them gives 57 real migrations and
   bands, time windows) with tests, using non-dust turnstile events only.
 - Indexer storage and the 30-day backfill; emit the `/api/v1/*` files.
 - Site footer and pages that read `meta.json` and show the anonymity set.
+
+### 3xpl test keys and daily dumps (later the same day)
+
+Two public 3xpl test keys (from the 3xpl Discord FAQ) were added locally to
+`indexer/.env` as `THREEXPL_API_KEY` and `THREEXPL_DUMPS_KEY`. Neither is
+committed or logged; empty or `your-...` placeholder values are treated as unset.
+
+- **Test keys verified.** With the API key, `api.3xpl.com` returns no
+  rate-limit headers (the sandbox returns `X-RateLimit-Limit: 30`); a burst of
+  35 block requests in about 7 seconds all returned 200. Without a key the
+  keyed endpoint returns 403. The test key's long-term quota is not published.
+- **Dumps include Ironwood.** 3,636 daily `zcash-main` dumps are listed
+  (2016-10-28 to 2026-10-12). The most recent (2026-10-12: 1,154 blocks, 38,494
+  events, 0.90 MB zstd) downloaded with the dumps key, passed its SHA-256
+  check, and contains 3,408 `ironwood-pool` rows alongside 195 `sapling-pool`
+  and 88 `orchard-pool` rows.
+- **Dump and API agree.** On the 337 blocks that overlap the spike, per-block
+  event counts match the cached API responses exactly, and signs and amounts
+  agree.
+- **30-day backfill is now about 38 MB** of compressed downloads (37.7 MB for the
+  latest 30 days) instead of about 29 hours of API calls.
+- **Nonstandard scripts.** Dumps contain `script-<hash>` pseudo-addresses
+  (94 rows that day, all zero-value data outputs). Zero-value ones are
+  ignored; a value-carrying one is now kept as a transparent leg with
+  `addressType: "nonstandard-script"` instead of marking the transaction
+  unknown.
+
+Dump format notes for the backfill reader: no header row; the address is in
+column 7, and amounts are split into a sign column (-1 or 1) and a magnitude
+column.
