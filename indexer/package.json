@@ -2,6 +2,7 @@
   "name": "@ail/indexer",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "spike": "tsx src/spike.ts",

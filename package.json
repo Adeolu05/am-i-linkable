@@ -1,6 +1,7 @@
 {
   "name": "am-i-linkable",
   "private": true,
+  "license": "MIT",
   "description": "Tells Zcash users whether their transparent<->shielded movements can be linked, without learning what they checked.",
   "packageManager": "pnpm@9.15.0",
   "engines": {
