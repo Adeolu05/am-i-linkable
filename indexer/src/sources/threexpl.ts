@@ -2,6 +2,7 @@
 // Without THREEXPL_API_KEY it uses the keyless sandbox, which is rate limited
 // (observed: 30 requests per rolling window of about a minute; we stay near 25 a minute) and has no uptime guarantee.
 
+import { createHash } from "node:crypto";
 import type { BalanceEffect, RawTx } from "../turnstile";
 
 const SANDBOX_BASE = "https://sandbox-api.3xpl.com";
@@ -40,8 +41,23 @@ export interface BlockEvents {
 
 export interface ThreeXplOptions {
   apiKey?: string;
+  /** Token for dumps.3xpl.com downloads (sent as a Bearer header, never in URLs or logs). */
+  dumpsKey?: string;
   minIntervalMs?: number;
   log?: (msg: string) => void;
+}
+
+/** One day of zcash-main events, as listed by /dumps. */
+export interface DumpInfo {
+  date: string;
+  blocks: number;
+  events: number;
+  uncompressed_size: number;
+  compressed_size: number;
+  compression_algo: string;
+  link: string;
+  checksum: string;
+  checksum_algo: string;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -50,6 +66,7 @@ export class ThreeXplClient {
   readonly base: string;
   readonly keyed: boolean;
   private readonly apiKey: string | undefined;
+  private readonly dumpsKey: string | undefined;
   private readonly minIntervalMs: number;
   private readonly log: (msg: string) => void;
   private lastRequestAt = 0;
@@ -57,6 +74,7 @@ export class ThreeXplClient {
 
   constructor(opts: ThreeXplOptions = {}) {
     this.apiKey = opts.apiKey || undefined;
+    this.dumpsKey = opts.dumpsKey || undefined;
     this.keyed = Boolean(this.apiKey);
     this.base = this.keyed ? KEYED_BASE : SANDBOX_BASE;
     this.minIntervalMs = opts.minIntervalMs ?? (this.keyed ? 250 : 2400);
@@ -134,6 +152,32 @@ export class ThreeXplClient {
     }
     if (!meta) throw new Error(`3xpl: no block metadata for ${height}`);
     return { height, ...meta, events };
+  }
+
+  /** Lists the available daily zcash-main dumps, oldest first. */
+  async listDumps(): Promise<DumpInfo[]> {
+    const r = await this.get<{ data: { dumps?: Record<string, Record<string, Omit<DumpInfo, "date">>> } }>(
+      `/dumps?from=${MODULE}&mode=all`,
+    );
+    const days = r.data.dumps?.[MODULE] ?? {};
+    return Object.entries(days)
+      .map(([date, info]) => ({ ...info, date }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /** Downloads one daily dump (zstd TSV) and verifies its SHA-256 checksum. Requires THREEXPL_DUMPS_KEY. */
+  async downloadDump(dump: DumpInfo): Promise<Uint8Array> {
+    if (!this.dumpsKey) throw new Error("3xpl: THREEXPL_DUMPS_KEY is not set");
+    if (dump.checksum_algo !== "sha256sum") throw new Error(`3xpl: unsupported checksum ${dump.checksum_algo}`);
+    const res = await fetch(dump.link, {
+      headers: { Authorization: `Bearer ${this.dumpsKey}` },
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!res.ok) throw new Error(`3xpl dumps: HTTP ${res.status} for ${dump.date}`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const sha = createHash("sha256").update(bytes).digest("hex");
+    if (sha !== dump.checksum) throw new Error(`3xpl dumps: checksum mismatch for ${dump.date}`);
+    return bytes;
   }
 }
 

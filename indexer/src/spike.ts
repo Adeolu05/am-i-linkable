@@ -86,6 +86,7 @@ async function main() {
   const minInterval = Number(process.env.THREEXPL_MIN_INTERVAL_MS);
   const client = new ThreeXplClient({
     apiKey: process.env.THREEXPL_API_KEY,
+    dumpsKey: process.env.THREEXPL_DUMPS_KEY,
     minIntervalMs: Number.isFinite(minInterval) && minInterval > 0 ? minInterval : undefined,
     log: (m) => console.log(`  [3xpl] ${m}`),
   });
