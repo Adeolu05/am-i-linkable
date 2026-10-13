@@ -118,7 +118,9 @@ For someone who has already moved funds and wants to know whether a
 transparent address of theirs sits in a likely round trip.
 
 1. The browser computes `h = SHA-256(address)` (UTF-8 of the canonical address string).
-2. It requests only `buckets/<first P hex chars of h>.json`.
+2. It requests only the bucket for the first `P` **bits** of `h`
+   (`buckets/<prefix>.json`, prefix written as hex). Bits rather than whole hex
+   characters let us tune bucket size finely.
 3. It receives the whole bucket and looks for `h` locally.
 4. If it finds a match, `core` runs the round-trip heuristics over that
    address's events against the recent dataset and explains the result.
