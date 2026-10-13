@@ -48,8 +48,8 @@ const zec = (zat: bigint) => {
 };
 
 /**
- * Unshields whose exact amount was shielded earlier in the window. These are
- * candidates for a round trip, not proven links.
+ * Unshields whose exact amount was shielded earlier in the window. These are only
+ * candidates for a round trip.
  */
 function exactAmountCandidates(events: TurnstileEvent[]) {
   const firstShield = new Map<string, number>();
@@ -188,7 +188,7 @@ async function main() {
     poolMigrations: { total: migrations.length, routes: migrationRoutes },
     distinctTransparentAddresses: addresses.size,
     roundTripCandidates: {
-      note: "Candidates only (exact amount shielded earlier in the window), not proven links. Dust and migrations excluded.",
+      note: "Round-trip candidates only (exact amount shielded earlier in the window). Dust and migrations excluded.",
       ...exactAmountCandidates(matchable),
       includingDust: exactAmountCandidates(events).candidates,
     },
