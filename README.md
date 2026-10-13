@@ -79,6 +79,56 @@ Output:
 - `data/spike/pool-migrations.json`: shielded -> shielded pool migrations
   (stored, not matched in v1).
 
+## Running the collector
+
+The collector keeps a rolling 30-day window of turnstile events in Postgres
+(Neon). It reads public chain data only.
+
+### Environment variables
+
+Names only; put the values in `indexer/.env` locally (see
+`indexer/.env.example`) or in your host's secret settings. Never commit them.
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `DATABASE_URL` | backfill, start | Neon **pooled** connection string. |
+| `DATABASE_URL_UNPOOLED` | migrate | Neon **direct** connection string (Neon recommends it for migrations). |
+| `THREEXPL_API_KEY` | backfill, start | 3xpl JSON API token. Optional (falls back to the rate-limited sandbox). |
+| `THREEXPL_DUMPS_KEY` | backfill | 3xpl dumps token. Optional (without it the backfill uses the JSON API only). |
+| `INTERVAL_MINUTES` | start | Minutes between cycles (default 10). |
+
+### Locally (PowerShell 7)
+
+```powershell
+pnpm install
+pnpm --filter indexer migrate     # create or upgrade the tables
+pnpm --filter indexer backfill    # last 30 days: daily dumps, then the API up to the tip
+pnpm --filter indexer start       # collector loop; Ctrl+C stops after the current cycle
+pnpm --filter indexer start -- --once   # a single cycle, then exit
+```
+
+The backfill is resumable: re-run it after an interruption and it continues.
+Downloaded dumps are cached (checksum-verified) in `data/3xpl-dumps/`.
+
+Each cycle checks the last 10 stored block hashes for reorgs, adds new blocks
+in one transaction, prunes data older than 30 days once a day, refreshes the
+bucket plan and stats in the `meta` table, and logs one line. Between cycles
+it holds no database connections, so Neon can scale to zero.
+
+### On Railway
+
+1. Create a service from this GitHub repo.
+2. Set the builder to Dockerfile with path `indexer/Dockerfile`, and leave the
+   root directory as the repo root (the image builds the pnpm workspace).
+3. Add the variables above in the service's Variables tab.
+4. Run migrations once, either locally with `pnpm --filter indexer migrate` or
+   as a one-off Railway command: `node --import tsx src/migrate.ts`.
+5. Run the backfill once (locally is fine; it writes to the same database).
+6. Deploy. The container runs `start` as a non-root user and stops cleanly on
+   SIGTERM during redeploys.
+
+To build the image yourself: `docker build -f indexer/Dockerfile -t am-i-linkable-indexer .`
+
 ## Other commands
 
 ```powershell
