@@ -32,16 +32,18 @@ today's turnstile events, so the extractor handles every pool generically
 Validation: the spike's Sapling events were checked against Blockchair's
 `shielded_value_delta` and fees; both matched to the zatoshi.
 
-### Spike results (blocks 3,515,422 to 3,516,421)
+### Spike headline numbers
 
-Time span: 2026-10-12 17:05 to 2026-10-13 14:00 UTC (about 21 hours).
-982 requests, about 50 minutes on the keyless sandbox, 0 HTTP errors.
+Blocks 3,515,422 to 3,516,421, 2026-10-12 17:05 to 2026-10-13 14:00 UTC
+(about 21 hours). 982 requests, about 50 minutes on the keyless sandbox, 0 HTTP
+errors. Figures below are from the final extractor (re-run from cache).
 
 | Transactions | Count |
-|---|---|
+|---|---:|
 | Turnstile (t <-> pool) | 3,269 |
+| Pool migration (pool -> pool, no transparent side) | 57 |
+| Shielded-internal (stays in one pool) | 1,201 |
 | Coinbase | 1,000 |
-| Shielded-only (pool <-> pool, e.g. Orchard -> Ironwood) | 1,258 |
 | Transparent-only | 2,733 |
 | Unrecognised | 0 |
 
@@ -52,32 +54,50 @@ Time span: 2026-10-12 17:05 to 2026-10-13 14:00 UTC (about 21 hours).
 | Ironwood | 942 | 2,150 | 3,581.44 | 5,072.41 |
 | **Total** | **1,027** | **2,245** | | |
 
-- 2,816 distinct transparent addresses touch a turnstile in 21 hours.
+- **3,272 turnstile events**, touching 2,816 distinct transparent addresses.
 - Orchard shows no shielding at all, only exits, which confirms it is exit-only.
-- **Dust dominates unshield counts:** 1,554 of 2,245 unshields move at most
-  0.001 ZEC net of fee (mostly 20,000 or 5,000 zat outputs, repeated hundreds of
-  times). They look automated.
-- Exact-amount round-trip candidates (an unshield whose exact amount was
-  shielded earlier in the window): 1,473 including dust, **62 excluding dust**.
-  Separately, 57 amounts appear exactly once as a shield and once as a later
-  unshield in the window, the strongest kind of match (Quesnelle's uniqueness
-  criterion).
+- **Dust (at most 0.001 ZEC):** 310 shields and 1,547 unshields, mostly a few
+  tiny amounts repeated hundreds of times. That leaves **1,415 matchable events**.
+- **Pool migrations:** 57, of which 47 are Orchard -> Ironwood (998.26 ZEC),
+  8 Sapling -> Ironwood, 1 Ironwood -> Sapling, and 1 Sapling + Orchard ->
+  Ironwood (1,192.73 ZEC).
+- **Round-trip candidates:** 62 non-dust unshields whose exact amount was
+  shielded earlier in the window; 57 of those involve an amount seen exactly
+  once in each direction (Quesnelle's uniqueness criterion). Including dust the
+  count would be 1,473, almost all noise. All of these are *candidates*
+  for linkage and nothing more.
+- **Bucket plan on this sample:** 1 bit (2 buckets), smallest bucket 1,399
+  addresses, meeting the 1,000 target.
 
-### Open decisions
+Correction: an earlier draft of this log reported 1,258 "shielded-only"
+transactions as migrations. That figure also included transactions that never
+leave one pool (only the fee does). Splitting them gives 57 real migrations and
+1,201 shielded-internal transactions.
 
-1. Long-term data source: run our own Zebra node (or Zaino) vs a keyed 3xpl
-   plan for the 90-day backfill (about 103,000 blocks; about 86 hours on the
-   keyless sandbox at the observed rate).
-2. Whether to index Orchard -> Ironwood migrations (no transparent side, but
-   the Orchard turnstile amount is public).
-3. A dust threshold for matching and for the published datasets.
-4. Final k-anonymity prefix length. At about 2,800 addresses per day, a 90-day
-   set may hold on the order of 100,000 to 200,000 addresses (not deduplicated
-   yet). For a minimum bucket of 1,000 that means a prefix of about 7 bits, so
-   prefixes should be specified in bits rather than whole hex characters.
+### Decisions (same day)
+
+1. **History: 30-day rolling window** (not 90). Most round-trip linkage happens
+   within hours to days. Initial backfill is about 34,560 blocks, **about 29
+   hours** at the sandbox rate, resumable.
+2. **Data source: keep 3xpl**, at about 25 requests a minute with exponential
+   backoff. 3xpl is credited in the README and the site footer. Scale-up paths
+   (a paid key or a self-run Zebra node) are documented in SPEC.md.
+3. **Migrations:** shielded -> shielded pool movements are stored as their own
+   `pool-migration` event kind, excluded from matching in v1. Chaining them
+   into matches is future work.
+4. **Dust:** amounts at or below 0.001 ZEC are flagged `isDust`, excluded from
+   matching and counted separately. The checker tells users a dust amount is
+   "too small and common to match meaningfully".
+5. **Address prefix:** chosen dynamically so the smallest bucket holds at least
+   1,000 addresses (`planBuckets` in `packages/core`). The bit length and
+   smallest bucket size are published in `meta.json` for the site to display.
+6. **Prior art:** payments-gateway is described neutrally from its public Glama
+   listing.
+7. **License:** MIT, copyright 2026 David Peluola.
 
 ### Next
 
-- Move the matching heuristics (exact, fee-adjusted, tolerance bands, time
-  windows) into `packages/core` with tests.
-- Decide the indexer storage format and the published-dataset layout.
+- Round-trip heuristics in `packages/core` (exact, fee-adjusted, tolerance
+  bands, time windows) with tests, using non-dust turnstile events only.
+- Indexer storage and the 30-day backfill; emit the `/api/v1/*` files.
+- Site footer and pages that read `meta.json` and show the anonymity set.
