@@ -1,0 +1,151 @@
+// Minimal client for the 3xpl JSON API (https://3xpl.com/data/json-api/docs).
+// Without THREEXPL_API_KEY it uses the keyless sandbox, which is rate limited
+// (observed: 30 requests per rolling window of about a minute) and has no uptime guarantee.
+
+import type { BalanceEffect, RawTx } from "../turnstile";
+
+const SANDBOX_BASE = "https://sandbox-api.3xpl.com";
+const KEYED_BASE = "https://api.3xpl.com";
+const MODULE = "zcash-main";
+const PAGE_LIMIT = 1000;
+const MAX_ATTEMPTS = 8;
+
+interface ApiEvent {
+  transaction: string;
+  sort_key: number;
+  address: string;
+  currency: string;
+  effect: string;
+  failed: boolean;
+}
+
+interface BlockResponse {
+  data: {
+    block?: { block: number; hash: string; time: string };
+    events?: Record<string, ApiEvent[]>;
+  };
+  context: { code: number };
+}
+
+interface BlocksResponse {
+  data: { blocks: Record<string, { hash: string; time: string }> };
+}
+
+export interface BlockEvents {
+  height: number;
+  hash: string;
+  time: string;
+  events: ApiEvent[];
+}
+
+export interface ThreeXplOptions {
+  apiKey?: string;
+  minIntervalMs?: number;
+  log?: (msg: string) => void;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export class ThreeXplClient {
+  readonly base: string;
+  readonly keyed: boolean;
+  private readonly apiKey: string | undefined;
+  private readonly minIntervalMs: number;
+  private readonly log: (msg: string) => void;
+  private lastRequestAt = 0;
+  requestCount = 0;
+
+  constructor(opts: ThreeXplOptions = {}) {
+    this.apiKey = opts.apiKey || undefined;
+    this.keyed = Boolean(this.apiKey);
+    this.base = this.keyed ? KEYED_BASE : SANDBOX_BASE;
+    this.minIntervalMs = opts.minIntervalMs ?? (this.keyed ? 250 : 2100);
+    this.log = opts.log ?? (() => {});
+  }
+
+  private async get<T>(path: string): Promise<T> {
+    const url = `${this.base}${path}`;
+    let backoff = 15_000;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const wait = this.lastRequestAt + this.minIntervalMs - Date.now();
+      if (wait > 0) await sleep(wait);
+      this.lastRequestAt = Date.now();
+      this.requestCount++;
+
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          headers: {
+            Accept: "application/json",
+            ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+          },
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch (err) {
+        this.log(`network error (${(err as Error).message}), retrying in ${backoff / 1000}s`);
+        await sleep(backoff);
+        backoff = Math.min(backoff * 2, 120_000);
+        continue;
+      }
+
+      if (res.status === 429 || res.status >= 500) {
+        const retryAfter = Number(res.headers.get("retry-after"));
+        const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoff;
+        this.log(`HTTP ${res.status}, retrying in ${Math.round(delay / 1000)}s`);
+        await sleep(delay);
+        backoff = Math.min(backoff * 2, 120_000);
+        continue;
+      }
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`3xpl ${res.status} for ${path}: ${body.slice(0, 300)}`);
+      }
+
+      // Stay just under the quota rather than tripping 429s.
+      const remaining = Number(res.headers.get("x-ratelimit-remaining"));
+      if (Number.isFinite(remaining) && remaining <= 1) {
+        this.log("rate-limit quota nearly exhausted, pausing 30s");
+        this.lastRequestAt = Date.now() + 30_000 - this.minIntervalMs;
+      }
+      return (await res.json()) as T;
+    }
+    throw new Error(`3xpl: giving up on ${path} after ${MAX_ATTEMPTS} attempts`);
+  }
+
+  async tipHeight(): Promise<number> {
+    const r = await this.get<BlocksResponse>(`/zcash/blocks?data=blocks&from=${MODULE}&limit=1`);
+    const heights = Object.keys(r.data.blocks).map(Number);
+    if (heights.length === 0) throw new Error("3xpl: empty blocks list");
+    return Math.max(...heights);
+  }
+
+  async blockEvents(height: number): Promise<BlockEvents> {
+    const events: ApiEvent[] = [];
+    let meta: { hash: string; time: string } | undefined;
+    for (let page = 0; ; page++) {
+      const data = page === 0 ? "block,events" : "events";
+      const r = await this.get<BlockResponse>(
+        `/zcash/block/${height}?data=${data}&from=${MODULE}&limit=${PAGE_LIMIT}&page=${page}`,
+      );
+      if (r.data.block) meta = { hash: r.data.block.hash, time: r.data.block.time };
+      const batch = r.data.events?.[MODULE] ?? [];
+      events.push(...batch);
+      if (batch.length < PAGE_LIMIT) break;
+    }
+    if (!meta) throw new Error(`3xpl: no block metadata for ${height}`);
+    return { height, ...meta, events };
+  }
+}
+
+/** Groups a block's events into transactions with signed effects. */
+export function blockToTxs(block: BlockEvents): RawTx[] {
+  const byTx = new Map<string, BalanceEffect[]>();
+  for (const e of block.events) {
+    if (e.failed || e.currency !== "zcash") continue;
+    let list = byTx.get(e.transaction);
+    if (!list) byTx.set(e.transaction, (list = []));
+    list.push({ address: e.address, effectZat: BigInt(e.effect) });
+  }
+  const time = new Date(block.time).toISOString();
+  return [...byTx].map(([txid, effects]) => ({ txid, blockHeight: block.height, time, effects }));
+}
