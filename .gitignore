@@ -1,0 +1,24 @@
+# Local assistant/editor config (never committed)
+.claude/
+CLAUDE.md
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Environment files (only .env.example is committed)
+.env*
+!.env.example
+
+# Local data (chain samples, caches)
+data/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log

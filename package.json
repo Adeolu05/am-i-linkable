@@ -1,0 +1,16 @@
+{
+  "name": "am-i-linkable",
+  "private": true,
+  "description": "Tells Zcash users whether their transparent<->shielded movements can be linked, without learning what they checked.",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @ail/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "spike": "pnpm --filter @ail/indexer spike"
+  }
+}
