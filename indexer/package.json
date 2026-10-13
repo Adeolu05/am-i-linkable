@@ -4,18 +4,32 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "files": [
+    "src",
+    "drizzle"
+  ],
   "scripts": {
     "spike": "tsx src/spike.ts",
+    "backfill": "tsx src/backfill.ts",
+    "start": "tsx src/start.ts",
+    "migrate": "tsx src/migrate.ts",
+    "db:generate": "drizzle-kit generate",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.9",
     "@types/node": "^26.6.5",
-    "tsx": "^4.23.15",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
     "typescript": "^7.0.2",
     "vitest": "^5.0.4"
   },
   "dependencies": {
-    "@ail/core": "workspace:*"
+    "@ail/core": "workspace:*",
+    "dotenv": "^18.0.7",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1",
+    "tsx": "^4.23.15"
   }
 }
