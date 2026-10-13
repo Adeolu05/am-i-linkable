@@ -55,8 +55,9 @@ pnpm spike -- --tip 3516000       # end at a fixed height, for reproducible runs
 ```
 
 Data source: the [3xpl](https://3xpl.com/data/json-api) JSON API. No key is
-needed: without one the spike uses the keyless sandbox, which is rate limited
-to about 30 requests a minute, so 1,000 blocks take around 35-40 minutes.
+needed: without one the spike uses the keyless sandbox (about 30 requests a
+minute allowed). The client stays at about 25 requests a minute and backs off on
+errors, so 1,000 blocks take around 50 minutes.
 Raw block data is cached in `data/cache/`, so if you interrupt it (Ctrl+C) and
 run it again, it resumes where it stopped and re-runs are instant.
 
@@ -65,13 +66,18 @@ Optional settings go in `indexer/.env` (copy from `indexer/.env.example`, never 
 | Variable | Purpose |
 |---|---|
 | `THREEXPL_API_KEY` | Use the keyed `api.3xpl.com` endpoint instead of the sandbox. |
-| `THREEXPL_MIN_INTERVAL_MS` | Minimum delay between requests (default 2100 ms keyless, 250 ms keyed). |
+| `THREEXPL_MIN_INTERVAL_MS` | Minimum delay between requests (default 2400 ms keyless, about 25 a minute; 250 ms keyed). |
 
 Output:
 
 - `data/spike/summary.json`: blocks scanned, transaction classes, shield and
-  unshield counts per pool, exact-amount round-trip candidates.
-- `data/spike/turnstile-events.json`: every extracted event.
+  unshield counts per pool, dust counts, pool migrations, round-trip
+  candidates and the bucket plan.
+- `data/spike/meta.json`: the k-anonymity bucket plan (prefix bits, smallest
+  bucket size), in the shape the site will read.
+- `data/spike/turnstile-events.json`: every turnstile event (dust flagged with `isDust`).
+- `data/spike/pool-migrations.json`: shielded -> shielded pool migrations
+  (stored, not matched in v1).
 
 ## Other commands
 
@@ -84,6 +90,11 @@ pnpm dev         # web app on http://localhost:3000
 Next.js collects anonymous build telemetry by default. To turn it off on your
 machine, run `pnpm --filter @ail/web exec next telemetry disable`.
 
+## Credits
+
+Public chain data comes from [3xpl](https://3xpl.com), via its free sandbox
+JSON API. Thank you to the 3xpl team.
+
 ## Privacy in one paragraph
 
 The server never receives a full address or a planned amount. Data files are
@@ -91,3 +102,7 @@ static and identical for everyone who requests them. No cookies, accounts,
 analytics or third-party requests. The app does not log IPs, but the hosting
 platform may keep access logs; see [docs/PRIVACY.md](docs/PRIVACY.md). Results
 are a risk indicator, not a guarantee.
+
+## License
+
+[MIT](LICENSE), copyright 2026 David Peluola.
