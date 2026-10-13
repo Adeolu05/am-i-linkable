@@ -165,7 +165,12 @@ async function main() {
   }
   for (const [k, t] of routeTotals) migrationRoutes[k] = { count: t.count, zec: zec(t.zat) };
 
-  const addresses = new Set(events.flatMap((e) => [...e.transparentInputs, ...e.transparentOutputs].map((l) => l.address)));
+  // Only real addresses go into the k-anonymity buckets: users cannot look up a nonstandard script.
+  const addresses = new Set(
+    events.flatMap((e) =>
+      [...e.transparentInputs, ...e.transparentOutputs].filter((l) => l.addressType === "transparent").map((l) => l.address),
+    ),
+  );
   const bucketPlan = planBuckets(
     [...addresses].map((a) => createHash("sha256").update(a, "utf8").digest("hex")),
     DEFAULT_MIN_BUCKET_SIZE,

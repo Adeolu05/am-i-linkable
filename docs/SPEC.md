@@ -49,8 +49,14 @@ user movement).
 | `amountZat`          | decimal string (zatoshis)           | Net value that crossed the pool's turnstile. For `out`, this includes the fee. |
 | `feeZat`             | decimal string (zatoshis)           | Transaction fee. |
 | `isDust`             | boolean                             | `amountZat` at or below 0.001 ZEC (100,000 zat). See [Dust](#dust). |
-| `transparentInputs`  | `{address, amountZat}[]`            | Transparent addresses spent from, netted per address. |
-| `transparentOutputs` | `{address, amountZat}[]`            | Transparent addresses paid to, netted per address. |
+| `transparentInputs`  | `{address, addressType, amountZat}[]` | Transparent addresses spent from, netted per address. |
+| `transparentOutputs` | `{address, addressType, amountZat}[]` | Transparent addresses paid to, netted per address. |
+
+`addressType` is `transparent` for t1/t3/tex1 addresses, or `nonstandard-script`
+for a transparent output whose script has no address form (the data source
+names it `script-<hash>`). Zero-value script outputs (data-only outputs) are
+ignored; value-carrying ones are kept as legs rather than marking the
+transaction unknown. Only `transparent` addresses go into the lookup buckets.
 
 Amounts are kept as strings because zatoshi totals can exceed 2^53.
 

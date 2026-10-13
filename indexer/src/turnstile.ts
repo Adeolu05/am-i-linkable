@@ -30,8 +30,16 @@ export interface RawTx {
   effects: BalanceEffect[];
 }
 
+/**
+ * "transparent": a t1/t3/tex1 address.
+ * "nonstandard-script": a transparent output whose script has no address form
+ * (the source names it "script-<hash>").
+ */
+export type TransparentAddressType = "transparent" | "nonstandard-script";
+
 export interface TransparentLeg {
   address: string;
+  addressType: TransparentAddressType;
   amountZat: string;
 }
 
@@ -96,6 +104,10 @@ export function isTransparentAddress(address: string): boolean {
   return /^t[13][1-9A-HJ-NP-Za-km-z]{33}$/.test(address) || /^tex1[02-9ac-hj-np-z]+$/.test(address);
 }
 
+export function isNonstandardScript(address: string): boolean {
+  return /^script-[0-9a-f]+$/.test(address);
+}
+
 export function poolFromPseudoAddress(address: string): Pool | undefined {
   const m = /^([a-z]+)-pool$/.exec(address);
   if (!m) return undefined;
@@ -119,9 +131,15 @@ export function classifyTx(tx: RawTx): ClassifiedTx {
   let voidNet = 0n;
 
   for (const [address, amount] of net) {
+    // Zero-value effects (e.g. data-only script outputs) carry nothing across a turnstile.
     if (amount === 0n) continue;
-    if (isTransparentAddress(address)) {
-      (amount < 0n ? inputs : outputs).push({ address, amountZat: abs(amount).toString() });
+    const addressType: TransparentAddressType | undefined = isTransparentAddress(address)
+      ? "transparent"
+      : isNonstandardScript(address)
+        ? "nonstandard-script"
+        : undefined;
+    if (addressType) {
+      (amount < 0n ? inputs : outputs).push({ address, addressType, amountZat: abs(amount).toString() });
       continue;
     }
     if (address === FEE_SINK) {

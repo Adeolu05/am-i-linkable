@@ -34,7 +34,7 @@ describe("classifyTx", () => {
       amountZat: "3135000",
       feeZat: "15000",
       transparentInputs: [],
-      transparentOutputs: [{ address: T1, amountZat: "3120000" }],
+      transparentOutputs: [{ address: T1, addressType: "transparent", amountZat: "3120000" }],
     });
   });
 
@@ -102,6 +102,27 @@ describe("classifyTx", () => {
   it("classifies a plain transparent transfer", () => {
     const r = classifyTx(tx([[T1, -1_010_000n], [T2, 1_000_000n], ["the-void", 10_000n]]));
     expect(r.class).toBe("transparent-only");
+  });
+
+  it("ignores zero-value nonstandard script outputs", () => {
+    const r = classifyTx(
+      tx([[T1, -23_975_008n], [T2, 23_965_008n], ["script-e9a1bcf4d7a17318a9eac07d89cc0bef", 0n], ["the-void", 10_000n]]),
+    );
+    expect(r.class).toBe("transparent-only");
+    expect(r.unknownAddresses).toEqual([]);
+  });
+
+  it("treats a value-carrying nonstandard script as a transparent leg", () => {
+    const SCRIPT = "script-27b21718cc5bbfddc84a77f586ea0219";
+    const r = classifyTx(tx([["ironwood-pool", -5_015_000n], [SCRIPT, 5_000_000n], ["the-void", 15_000n]]));
+    expect(r.class).toBe("turnstile");
+    expect(r.unknownAddresses).toEqual([]);
+    expect(r.events[0]).toMatchObject({
+      pool: "ironwood",
+      direction: "out",
+      amountZat: "5015000",
+      transparentOutputs: [{ address: SCRIPT, addressType: "nonstandard-script", amountZat: "5000000" }],
+    });
   });
 
   it("flags unknown pseudo-addresses instead of guessing", () => {
