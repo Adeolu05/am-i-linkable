@@ -62,6 +62,12 @@ export interface DumpInfo {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Treats empty values and .env.example placeholders ("your-...") as unset. */
+export function usableKey(value: string | undefined): string | undefined {
+  const v = value?.trim();
+  return v && !v.toLowerCase().startsWith("your-") ? v : undefined;
+}
+
 export class ThreeXplClient {
   readonly base: string;
   readonly keyed: boolean;
@@ -73,12 +79,15 @@ export class ThreeXplClient {
   requestCount = 0;
 
   constructor(opts: ThreeXplOptions = {}) {
-    this.apiKey = opts.apiKey || undefined;
-    this.dumpsKey = opts.dumpsKey || undefined;
+    this.apiKey = usableKey(opts.apiKey);
+    this.dumpsKey = usableKey(opts.dumpsKey);
     this.keyed = Boolean(this.apiKey);
     this.base = this.keyed ? KEYED_BASE : SANDBOX_BASE;
     this.minIntervalMs = opts.minIntervalMs ?? (this.keyed ? 250 : 2400);
     this.log = opts.log ?? (() => {});
+    // Never log key values, only whether one is in use.
+    if (!this.apiKey) this.log("API key not set (THREEXPL_API_KEY): using the keyless sandbox");
+    if (!this.dumpsKey) this.log("dumps key not set (THREEXPL_DUMPS_KEY): dump downloads disabled");
   }
 
   private async get<T>(path: string): Promise<T> {
@@ -167,7 +176,7 @@ export class ThreeXplClient {
 
   /** Downloads one daily dump (zstd TSV) and verifies its SHA-256 checksum. Requires THREEXPL_DUMPS_KEY. */
   async downloadDump(dump: DumpInfo): Promise<Uint8Array> {
-    if (!this.dumpsKey) throw new Error("3xpl: THREEXPL_DUMPS_KEY is not set");
+    if (!this.dumpsKey) throw new Error("3xpl: dumps key not set (THREEXPL_DUMPS_KEY); dumps cannot be downloaded without one");
     if (dump.checksum_algo !== "sha256sum") throw new Error(`3xpl: unsupported checksum ${dump.checksum_algo}`);
     const res = await fetch(dump.link, {
       headers: { Authorization: `Bearer ${this.dumpsKey}` },
