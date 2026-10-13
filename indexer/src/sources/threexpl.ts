@@ -3,6 +3,8 @@
 // (observed: 30 requests per rolling window of about a minute; we stay near 25 a minute) and has no uptime guarantee.
 
 import { createHash } from "node:crypto";
+import type { BlockSource } from "../cycle";
+import type { SourceBlock } from "../ingest";
 import type { BalanceEffect, RawTx } from "../turnstile";
 
 const SANDBOX_BASE = "https://sandbox-api.3xpl.com";
@@ -146,6 +148,17 @@ export class ThreeXplClient {
     return Math.max(...heights);
   }
 
+  get hasDumpsKey(): boolean {
+    return this.dumpsKey !== undefined;
+  }
+
+  /** Block hash only (one cheap request), for reorg checks. */
+  async blockHash(height: number): Promise<string> {
+    const r = await this.get<BlockResponse>(`/zcash/block/${height}?data=block&from=${MODULE}`);
+    if (!r.data.block?.hash) throw new Error(`3xpl: no block metadata for ${height}`);
+    return r.data.block.hash;
+  }
+
   async blockEvents(height: number): Promise<BlockEvents> {
     const events: ApiEvent[] = [];
     let meta: { hash: string; time: string } | undefined;
@@ -201,4 +214,23 @@ export function blockToTxs(block: BlockEvents): RawTx[] {
   }
   const time = new Date(block.time).toISOString();
   return [...byTx].map(([txid, effects]) => ({ txid, blockHeight: block.height, time, effects }));
+}
+
+export function toSourceBlock(block: BlockEvents): SourceBlock {
+  return {
+    height: block.height,
+    hash: block.hash,
+    time: new Date(block.time).toISOString(),
+    source: "api",
+    txs: blockToTxs(block),
+  };
+}
+
+/** Adapts the 3xpl client to the collector's BlockSource interface. */
+export function threeXplBlockSource(client: ThreeXplClient): BlockSource {
+  return {
+    tipHeight: () => client.tipHeight(),
+    block: async (height) => toSourceBlock(await client.blockEvents(height)),
+    blockHash: (height) => client.blockHash(height),
+  };
 }
