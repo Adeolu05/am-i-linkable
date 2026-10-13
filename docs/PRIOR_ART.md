@@ -35,26 +35,39 @@ main signal. Both are retrospective analyses run by researchers over the whole
 chain. Neither gives an individual user a way to check their own exposure
 before or after they move funds.
 
-## The "payments-gateway" project's Zcash amount advisor
+## payments-gateway: Zcash amount-privacy advisor
 
-The payments-gateway project includes a Zcash amount advisor that suggests
-amounts which are less likely to be linked. It answers through a **server
-API**: the client sends the amount it is considering and the server replies. So
-the operator of that server learns every queried amount (and, from the network
-layer, who asked), which is precisely the information a privacy-conscious user
-wants to keep to themselves.
+[payments-gateway](https://glama.ai/mcp/servers/Rotwang9000/payments-gateway)
+(Rotwang9000, MIT licensed) is a payments gateway that runs as both an MCP
+server and a REST API. Among other features it offers a free Zcash
+amount-privacy advisor: "blend in" advice for shield and deshield amounts, a
+round-trip warning, a split planner for large amounts, and an on-chain
+popular-amount index. Its public listing documents these REST endpoints:
+
+- `GET /v1/zec/amount-advice`
+- `GET /v1/zec/split-plan`
+- `GET /v1/zec/popular-amounts`
+
+with equivalent MCP tools (`zec_amount_advice`, `zec_split_plan`,
+`zec_popular_amounts`).
+
+Because advice is served by a REST API, the client asks the server about the
+amount it is considering, so whoever operates that server receives the queried
+amount (and, at the network layer, the requester's IP address). The project is
+open source and self-hostable, which lets a user run their own instance to avoid
+this; live counts need a Zebra node and its index poller.
 
 ## How Am I Linkable? differs
 
 | | Research papers | payments-gateway advisor | Am I Linkable? |
 |---|---|---|---|
-| Audience | Researchers | Users of that gateway | Ordinary Zcash users |
+| Audience | Researchers | Gateway operators, REST and MCP clients | Ordinary Zcash users |
 | Where matching runs | Researcher's machine | Server | **User's browser** |
-| What the operator learns | n/a | The queried amount | Neither the amount nor the address |
+| What the operator learns | n/a | The queried amount (unless self-hosted) | Neither the amount nor the address |
 | Check a planned move | No | Yes | Yes ("Before you move") |
 | Check a past address | Not per user | No | Yes, via a k-anonymous range query |
-| Public aggregate stats | In the paper | No | Yes ("Pool weather") |
-| Covers Ironwood | No (pre-date it) | Unknown | Yes |
+| Public aggregate stats | In the paper | Popular-amount index | Yes ("Pool weather") |
+| Covers Ironwood | No (pre-date it) | Not stated in the listing | Yes |
 
 The three differences that matter:
 

@@ -1,6 +1,6 @@
 # Am I Linkable? — Specification
 
-Status: draft, 2026-10-13.
+Status: draft, updated 2026-10-13.
 
 Am I Linkable? is a free tool that tells Zcash users whether their movements
 between transparent addresses and the shielded pools can be linked by amount
@@ -29,9 +29,9 @@ Shielded pools on mainnet as of this spec:
 
 ## 1. Indexer
 
-Reads public chain data and stores **turnstile events**.
+Reads public chain data and stores two kinds of event.
 
-### Event definition
+### Turnstile events (matched)
 
 A transaction produces one turnstile event per shielded pool whose net value
 balance is non-zero, **if** the transaction also has at least one transparent
@@ -40,6 +40,7 @@ user movement).
 
 | Field                | Type                                | Notes |
 |----------------------|-------------------------------------|-------|
+| `kind`               | `"turnstile"`                       | |
 | `txid`               | hex string                          | |
 | `blockHeight`        | integer                             | |
 | `time`               | ISO 8601                            | Block time. |
@@ -47,51 +48,99 @@ user movement).
 | `direction`          | `in \| out`                         | `in` = shielding (t -> pool), `out` = unshielding (pool -> t). |
 | `amountZat`          | decimal string (zatoshis)           | Net value that crossed the pool's turnstile. For `out`, this includes the fee. |
 | `feeZat`             | decimal string (zatoshis)           | Transaction fee. |
+| `isDust`             | boolean                             | `amountZat` at or below 0.001 ZEC (100,000 zat). See [Dust](#dust). |
 | `transparentInputs`  | `{address, amountZat}[]`            | Transparent addresses spent from, netted per address. |
 | `transparentOutputs` | `{address, amountZat}[]`            | Transparent addresses paid to, netted per address. |
 
 Amounts are kept as strings because zatoshi totals can exceed 2^53.
 
-Transactions that move value between pools with no transparent side (for
-example Orchard -> Ironwood migrations) are counted but not stored as events in
-v1. Their amounts are public as well; whether to index them is an open
-question (see below).
+### Pool-migration events (stored, not matched in v1)
+
+A transaction with no transparent side that takes value out of one shielded pool
+and into another (for example Orchard -> Ironwood after NU6.3) is stored as a
+`pool-migration` event:
+
+| Field         | Type                         | Notes |
+|---------------|------------------------------|-------|
+| `kind`        | `"pool-migration"`           | |
+| `txid`, `blockHeight`, `time`, `feeZat` | | As above. |
+| `from`        | `{pool, amountZat}[]`        | Pools value left. |
+| `to`          | `{pool, amountZat}[]`        | Pools value entered. |
+
+These amounts are public at the source pool's turnstile, but v1 does **not**
+use migrations for matching. They are counted in the stats and kept for the
+future work below. Transactions that stay inside a single pool (only the fee
+leaves it) are counted as `shielded-internal` and not stored.
+
+### Dust
+
+An amount at or below **0.001 ZEC** is dust. In the spike, dust made up 1,547 of
+2,245 unshields, mostly the same few tiny amounts repeated hundreds of times by
+automated senders. Dust events are:
+
+- stored, with `isDust: true`;
+- **excluded from matching**;
+- counted separately in the stats.
+
+When a user enters a dust amount in a checker, the app tells them:
+*"This amount is too small and common to match meaningfully."*
+(`DUST_MESSAGE` in `packages/core`.)
 
 ### Retention and sync
 
-- Backfill the last **90 days** of blocks (about 103,000 blocks at 75 s spacing).
-- Then follow the tip, handling reorgs by re-processing the last N blocks
-  (N = 100, well above Zebra's 99-block finality limit) on each poll.
-- Events older than 90 days are dropped from published datasets.
+- **30-day rolling window.** Most round-trip linkage happens within hours to
+  days of the original movement, so 30 days covers the useful history while
+  keeping the dataset small.
+- Initial backfill: about 34,560 blocks (30 days at 75 s spacing). At the
+  keyless sandbox rate (about 20 blocks a minute, observed) that takes
+  **about 29 hours**, resumable thanks to the per-block cache.
+- Then follow the tip, re-processing the last 100 blocks on each poll to absorb
+  reorgs (Zebra does not reorg deeper than 99 blocks).
+- Events older than 30 days are dropped from published datasets.
 
 ### Data source
 
-The spike (2026-10-13) evaluated three options:
+**3xpl JSON API** (<https://3xpl.com>). Per-block events list every balance
+effect, including pool pseudo-addresses (`sapling-pool`, `orchard-pool`,
+`ironwood-pool`), the fee sink (`the-void`) and the dev-fund `lockbox`. Sapling
+values were cross-checked against Blockchair and matched exactly.
 
-| Option | Result |
-|--------|--------|
-| lightwalletd / Zaino gRPC (`zec.rocks:443`) | Reachable and keyless. Compact blocks omit value balances, so it needs raw transaction parsing (v4, v5 and the new v6 format) plus a lookup of every transparent input's previous output to get addresses and amounts. Most work, most independent. |
-| Blockchair API | Keyless for light use. **Rejected for now:** it reports `shielded_value_delta = 0` for Ironwood/v6 transactions, so it misses most current turnstile traffic. It is correct for Sapling. |
-| Public Zebra JSON-RPC | No keyless public endpoint found. Providers (GetBlock, QuickNode) need an account token. |
-| **3xpl JSON API** | **Chosen for the spike.** Per-block events list every balance effect, including pool pseudo-addresses (`sapling-pool`, `orchard-pool`, `ironwood-pool`), the fee sink (`the-void`) and the dev-fund `lockbox`. The keyless sandbox allows about 30 requests a minute. Sapling values were cross-checked against Blockchair and matched exactly. |
+- The keyless sandbox allows about 30 requests a minute. The indexer stays at
+  **about 25 requests a minute** (2.4 s minimum interval), backs off
+  exponentially on HTTP 429 and 5xx, honours `Retry-After`, and pauses when the
+  `X-RateLimit-Remaining` header runs low.
+- Attribution: 3xpl is credited in the README and in the site footer.
+- The extraction logic is source-agnostic (it consumes signed per-address
+  balance effects), so the source can change without touching matching.
 
-Production plan: keep the extraction logic source-agnostic (it consumes signed
-per-address balance effects) and move to our own Zebra node (or Zaino) for the
-90-day backfill and tip-following, with 3xpl as a cross-check. 3xpl's daily
-TSV dumps would make the backfill cheap but require an API key.
+**Scale-up paths**, if the sandbox becomes a bottleneck or disappears:
 
-### Published datasets
+1. **A paid 3xpl API key** (`THREEXPL_API_KEY`): higher limits on
+   `api.3xpl.com` plus the daily TSV dumps, which turn the backfill into about
+   30 file downloads.
+2. **A self-run Zebra node** (optionally with Zaino): no third-party dependency
+   or limits, at the cost of running a full node and decoding v4/v5/v6
+   transactions ourselves.
+
+Rejected during the spike: Blockchair (reports zero shielded value change for
+Ironwood/v6 transactions), raw lightwalletd (needs a transaction parser and
+previous-output lookups), public Zebra RPC (none keyless).
+
+### Published datasets (the API)
 
 The indexer emits static files. Every visitor who requests a file gets the same
 bytes.
 
-- `shielding/recent.json`: all events from the last 90 days, minimal fields
-  (height, time, pool, direction, amount, fee). No addresses.
-- `buckets/<prefix>.json`: for each hash prefix, the list of
+- `GET /api/v1/meta.json`: dataset window, generation time, and the current
+  bucket plan (`prefixBits`, `bucketCount`, `minBucketSize`,
+  `targetMinBucketSize`, `meetsTarget`, `totalAddresses`). The site reads this
+  to display the anonymity set.
+- `GET /api/v1/shielding/recent.json`: non-dust turnstile events from the last
+  30 days, minimal fields (height, time, pool, direction, amount, fee). No
+  addresses.
+- `GET /api/v1/buckets/<bits>/<bucket-id>.json`: for one bucket, the list of
   `{addressHash, events[]}` for transparent addresses that appear in any event.
-- `weather.json`: the aggregates for the pool weather page.
-- `meta.json`: dataset height, generation time, prefix length, and the
-  anonymity-set sizes (minimum, median and maximum addresses per bucket).
+- `GET /api/v1/weather.json`: aggregates for the pool weather page.
 
 ## 2. Web app
 
@@ -105,48 +154,55 @@ For someone planning to shield or unshield.
 
 1. The browser downloads `shielding/recent.json` (identical for everyone).
 2. The user enters a planned amount and direction. It never leaves the browser.
-3. `core` finds events of the opposite direction whose amounts fall within a
-   tolerance (exact, within the fee, within a small percentage) and reports how
-   many candidates there are and how recent they are.
-4. Output: a plain-language risk level, how many other movements the amount
-   blends in with, and suggestions (split the amount, wait, avoid round numbers
-   that match a recent deposit).
+3. If the amount is dust, the app shows the dust message and stops.
+4. Otherwise `core` finds non-dust events of the opposite direction whose
+   amounts fall within a tolerance (exact, within the fee, within a small
+   percentage) and reports how many candidates there are and how recent they are.
+5. Output: a plain-language risk level, how many other movements the amount
+   blends in with, and suggestions (split the amount, wait, avoid amounts that
+   match a recent movement).
 
 ### Tool B: "Have I been linked?"
 
 For someone who has already moved funds and wants to know whether a
 transparent address of theirs sits in a likely round trip.
 
-1. The browser computes `h = SHA-256(address)` (UTF-8 of the canonical address string).
-2. It requests only the bucket for the first `P` **bits** of `h`
-   (`buckets/<prefix>.json`, prefix written as hex). Bits rather than whole hex
-   characters let us tune bucket size finely.
-3. It receives the whole bucket and looks for `h` locally.
-4. If it finds a match, `core` runs the round-trip heuristics over that
-   address's events against the recent dataset and explains the result.
+1. The browser fetches `meta.json` to learn the current `prefixBits`.
+2. It computes `h = SHA-256(address)` (UTF-8 of the canonical address string).
+3. It requests only the bucket for the first `prefixBits` **bits** of `h`
+   (`buckets/<bits>/<bucket-id>.json`, id written as zero-padded hex).
+4. It receives the whole bucket and looks for `h` locally.
+5. If it finds a match, `core` runs the round-trip heuristics over that
+   address's non-dust events and explains the result as *candidates*, never as
+   proof.
 
 This is a k-anonymity range query, like HaveIBeenPwned's Pwned Passwords.
-The prefix length `P` is chosen so that every bucket holds a large number of
-addresses (target: a minimum of 1,000 per bucket; calibrated once real counts are
-known). The current anonymity-set sizes are published in `meta.json` and shown
-in the UI.
+
+**Dynamic prefix length.** Each time the dataset is rebuilt, the indexer picks
+the largest bit length for which the *smallest* bucket still holds at least
+**1,000 addresses** (`planBuckets` in `packages/core`). The current bit length and
+smallest bucket size are published in `meta.json` and shown on the site, so
+users can see their anonymity set. Bits rather than whole hex characters allow
+fine control: with the spike's 2,816 addresses the plan is 1 bit (2 buckets,
+smallest 1,399).
 
 Limits we state openly: the server learns which bucket was requested, so it
-learns that the address is one of the roughly k addresses in that bucket (or
-an address that hashes into it but has no events). Repeated checks of several
-addresses from the same network location could narrow that down. See
+learns that the address is one of at least `minBucketSize` addresses in that
+bucket (or an address with no events that hashes into it). Repeated checks of
+several addresses from the same network location could narrow that down. See
 [PRIVACY.md](PRIVACY.md).
 
 ### 3. Pool weather page
 
 Public aggregate statistics, computed by the indexer and served as `weather.json`:
 
-- Shield and unshield counts and ZEC volume per pool (24 h, 7 d, 90 d).
-- Share of unshields whose amount exactly or nearly matches an earlier shield
-  (a network-wide linkability rate).
+- Shield and unshield counts and ZEC volume per pool (24 h, 7 d, 30 d), with
+  dust counted separately.
+- Share of non-dust unshields that are round-trip *candidates* (an exact or
+  near amount match with an earlier shield).
 - Distribution of amounts (how many movements share each amount band), so
   users can see where they would blend in.
-- Orchard -> Ironwood migration progress.
+- Pool migration counts and volume (Orchard -> Ironwood progress).
 
 ## Out of scope
 
@@ -155,12 +211,12 @@ Public aggregate statistics, computed by the indexer and served as `weather.json
 - Anything inside the shielded pools beyond public value balances.
 - Advice tied to a specific user's finances.
 
-## Open questions
+## Future work
 
-1. Whether to index shielded-only cross-pool movements (Orchard -> Ironwood
-   migrations reveal their amounts at the Orchard turnstile).
-2. Final prefix length and minimum bucket size, once 90 days of real addresses
-   are counted.
-3. Whether the indexer runs its own Zebra node or uses a keyed 3xpl plan for
-   the backfill.
-4. Tolerance bands and time windows for the round-trip heuristics.
+- **Matching across pool migrations.** A shield into Sapling followed by a
+  Sapling -> Ironwood migration and an Ironwood unshield of a similar amount is
+  still a round trip. v1 stores migrations but does not chain them into
+  matches.
+- Tolerance bands and time windows for the round-trip heuristics, tuned on the
+  30-day dataset.
+- Moving the indexer to a paid key or a self-run node if the sandbox limits bite.
