@@ -74,9 +74,29 @@ describe("classifyTx", () => {
     expect(r.events).toEqual([]);
   });
 
-  it("classifies a pool-to-pool migration as shielded-only", () => {
+  it("stores an Orchard -> Ironwood migration as its own event kind", () => {
     const r = classifyTx(tx([["orchard-pool", -1_000_000n], ["ironwood-pool", 985_000n], ["the-void", 15_000n]]));
-    expect(r.class).toBe("shielded-only");
+    expect(r.class).toBe("pool-migration");
+    expect(r.events).toEqual([]);
+    expect(r.migration).toMatchObject({
+      kind: "pool-migration",
+      from: [{ pool: "orchard", amountZat: "1000000" }],
+      to: [{ pool: "ironwood", amountZat: "985000" }],
+      feeZat: "15000",
+    });
+  });
+
+  it("classifies a fully shielded transfer inside one pool as shielded-internal", () => {
+    const r = classifyTx(tx([["ironwood-pool", -15_000n], ["the-void", 15_000n]]));
+    expect(r.class).toBe("shielded-internal");
+    expect(r.migration).toBeUndefined();
+  });
+
+  it("flags dust at or below 0.001 ZEC", () => {
+    const dust = classifyTx(tx([["ironwood-pool", -35_000n], [T1, 20_000n], ["the-void", 15_000n]]));
+    expect(dust.events[0]).toMatchObject({ kind: "turnstile", isDust: true });
+    const notDust = classifyTx(tx([["ironwood-pool", -200_015_000n], [T1, 200_000_000n], ["the-void", 15_000n]]));
+    expect(notDust.events[0]!.isDust).toBe(false);
   });
 
   it("classifies a plain transparent transfer", () => {

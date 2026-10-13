@@ -1,11 +1,14 @@
 // Turnstile extraction: turns per-address balance effects of a transaction
-// into events that move value between transparent addresses and a shielded pool.
+// into events that move value between transparent addresses and a shielded pool,
+// plus pool-to-pool migration events.
 //
 // Input model (source-agnostic): every transaction is a list of signed balance
 // effects in zatoshis. Transparent addresses appear as themselves; shielded
 // pools appear as pseudo-addresses ("sapling-pool", "orchard-pool",
 // "ironwood-pool", ...). A positive pool effect means value entered the pool
 // (shielding); a negative one means value left it (unshielding).
+
+import { isDust } from "@ail/core";
 
 export type Pool = "sprout" | "sapling" | "orchard" | "ironwood";
 export const POOLS: readonly Pool[] = ["sprout", "sapling", "orchard", "ironwood"];
@@ -33,6 +36,7 @@ export interface TransparentLeg {
 }
 
 export interface TurnstileEvent {
+  kind: "turnstile";
   txid: string;
   blockHeight: number;
   time: string;
@@ -42,22 +46,44 @@ export interface TurnstileEvent {
   amountZat: string;
   /** Fee paid by the transaction, in zatoshis (decimal string). */
   feeZat: string;
+  /** At or below 0.001 ZEC: stored and counted, but excluded from matching. */
+  isDust: boolean;
   /** Transparent addresses spent from in this transaction. */
   transparentInputs: TransparentLeg[];
   /** Transparent addresses paid to in this transaction. */
   transparentOutputs: TransparentLeg[];
 }
 
+export interface PoolLeg {
+  pool: Pool;
+  amountZat: string;
+}
+
+/** Value moved between shielded pools with no transparent side (e.g. Orchard -> Ironwood). Not matched in v1. */
+export interface PoolMigrationEvent {
+  kind: "pool-migration";
+  txid: string;
+  blockHeight: number;
+  time: string;
+  /** Pools value left. */
+  from: PoolLeg[];
+  /** Pools value entered. */
+  to: PoolLeg[];
+  feeZat: string;
+}
+
 export type TxClass =
-  | "turnstile" // transparent leg plus a net pool change: what we index
+  | "turnstile" // transparent leg plus a net pool change: matched
+  | "pool-migration" // value moves from one shielded pool to another, no transparent leg: stored, not matched
+  | "shielded-internal" // stays within one pool; only the fee leaves it
   | "coinbase" // value is minted; excluded
-  | "shielded-only" // pool change(s) with no transparent leg, e.g. Orchard -> Ironwood migration
   | "transparent-only" // no pool change
   | "unknown"; // unrecognised pseudo-address present
 
 export interface ClassifiedTx {
   class: TxClass;
   events: TurnstileEvent[];
+  migration?: PoolMigrationEvent;
   /** Pseudo-addresses we did not recognise, for diagnostics. */
   unknownAddresses: string[];
 }
@@ -82,6 +108,8 @@ function sumByAddress(effects: BalanceEffect[]): Map<string, bigint> {
   return net;
 }
 
+const abs = (n: bigint) => (n < 0n ? -n : n);
+
 export function classifyTx(tx: RawTx): ClassifiedTx {
   const net = sumByAddress(tx.effects);
   const poolNet = new Map<Pool, bigint>();
@@ -93,8 +121,7 @@ export function classifyTx(tx: RawTx): ClassifiedTx {
   for (const [address, amount] of net) {
     if (amount === 0n) continue;
     if (isTransparentAddress(address)) {
-      const leg = { address, amountZat: (amount < 0n ? -amount : amount).toString() };
-      (amount < 0n ? inputs : outputs).push(leg);
+      (amount < 0n ? inputs : outputs).push({ address, amountZat: abs(amount).toString() });
       continue;
     }
     if (address === FEE_SINK) {
@@ -112,30 +139,41 @@ export function classifyTx(tx: RawTx): ClassifiedTx {
   if (unknownAddresses.length > 0) return { class: "unknown", events: [], unknownAddresses };
   // The fee sink only goes negative when the transaction creates new coins.
   if (voidNet < 0n) return { class: "coinbase", events: [], unknownAddresses };
-  if (poolNet.size === 0) return { class: "transparent-only", events: [], unknownAddresses };
+
+  const changed = POOLS.filter((p) => (poolNet.get(p) ?? 0n) !== 0n);
+  if (changed.length === 0) return { class: "transparent-only", events: [], unknownAddresses };
+
+  const base = { txid: tx.txid, blockHeight: tx.blockHeight, time: tx.time, feeZat: voidNet.toString() };
+
   if (inputs.length === 0 && outputs.length === 0) {
-    return { class: "shielded-only", events: [], unknownAddresses };
+    const legs = (sign: 1n | -1n) =>
+      changed
+        .filter((p) => poolNet.get(p)! * sign > 0n)
+        .map((pool) => ({ pool, amountZat: abs(poolNet.get(pool)!).toString() }));
+    const from = legs(-1n);
+    const to = legs(1n);
+    if (from.length > 0 && to.length > 0) {
+      return { class: "pool-migration", events: [], migration: { kind: "pool-migration", ...base, from, to }, unknownAddresses };
+    }
+    return { class: "shielded-internal", events: [], unknownAddresses };
   }
 
   const byAddress = (a: TransparentLeg, b: TransparentLeg) => a.address.localeCompare(b.address);
   inputs.sort(byAddress);
   outputs.sort(byAddress);
 
-  const events: TurnstileEvent[] = [];
-  for (const pool of POOLS) {
-    const amount = poolNet.get(pool);
-    if (amount === undefined || amount === 0n) continue;
-    events.push({
-      txid: tx.txid,
-      blockHeight: tx.blockHeight,
-      time: tx.time,
+  const events: TurnstileEvent[] = changed.map((pool) => {
+    const amount = poolNet.get(pool)!;
+    return {
+      kind: "turnstile",
+      ...base,
       pool,
       direction: amount > 0n ? "in" : "out",
-      amountZat: (amount < 0n ? -amount : amount).toString(),
-      feeZat: voidNet.toString(),
+      amountZat: abs(amount).toString(),
+      isDust: isDust(abs(amount)),
       transparentInputs: inputs,
       transparentOutputs: outputs,
-    });
-  }
-  return { class: events.length > 0 ? "turnstile" : "transparent-only", events, unknownAddresses };
+    };
+  });
+  return { class: "turnstile", events, unknownAddresses };
 }

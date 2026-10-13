@@ -40,6 +40,10 @@ importers:
         version: 7.0.2
 
   indexer:
+    dependencies:
+      '@ail/core':
+        specifier: workspace:*
+        version: link:../packages/core
     devDependencies:
       '@types/node':
         specifier: ^26.6.5

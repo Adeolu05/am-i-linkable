@@ -1,6 +1,6 @@
 // Minimal client for the 3xpl JSON API (https://3xpl.com/data/json-api/docs).
 // Without THREEXPL_API_KEY it uses the keyless sandbox, which is rate limited
-// (observed: 30 requests per rolling window of about a minute) and has no uptime guarantee.
+// (observed: 30 requests per rolling window of about a minute; we stay near 25 a minute) and has no uptime guarantee.
 
 import type { BalanceEffect, RawTx } from "../turnstile";
 
@@ -59,7 +59,7 @@ export class ThreeXplClient {
     this.apiKey = opts.apiKey || undefined;
     this.keyed = Boolean(this.apiKey);
     this.base = this.keyed ? KEYED_BASE : SANDBOX_BASE;
-    this.minIntervalMs = opts.minIntervalMs ?? (this.keyed ? 250 : 2100);
+    this.minIntervalMs = opts.minIntervalMs ?? (this.keyed ? 250 : 2400);
     this.log = opts.log ?? (() => {});
   }
 
