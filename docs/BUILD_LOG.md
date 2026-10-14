@@ -131,3 +131,79 @@ committed or logged; empty or `your-...` placeholder values are treated as unset
 Dump format notes for the backfill reader: no header row; the address is in
 column 7, and amounts are split into a sign column (-1 or 1) and a magnitude
 column.
+
+## 2026-10-14: Collector on Postgres (Neon)
+
+### Done
+
+- Drizzle schema and first migration: `indexed_blocks`, `turnstile_events`,
+  `event_addresses`, `pool_migrations`, `meta`. Child rows cascade from
+  `indexed_blocks`, so reorg rollback and pruning are single deletes.
+  Migrations run over Neon's direct connection (`DATABASE_URL_UNPOOLED`);
+  everything else uses the pooled one with node-postgres.
+- `pnpm --filter indexer backfill`: 3xpl daily dumps (checksum-verified,
+  cached, stream-decompressed), then the JSON API up to the tip. Resumable.
+- `pnpm --filter indexer start`: collector loop (reorg check over the last 10
+  hashes, one transaction per cycle, daily prune, meta refresh, one log line,
+  no connections held between cycles, graceful SIGTERM). `--once` runs one cycle.
+- Dockerfile (Node 24 Alpine, non-root) and README instructions for Railway.
+- Secret handling: dotenv only, nothing printed; every error goes through a
+  redaction helper that strips connection strings, hosts, endpoint ids, users,
+  passwords and API keys.
+
+### Backfill results
+
+| | |
+|---|---|
+| Dumps loaded | 29 (2026-09-14 .. 2026-10-12), 0 column-11 anomalies, 0 block-count mismatches |
+| Dump phase | 703 s (about 12 minutes) |
+| API gap fill | 1,721 blocks (3,515,759 .. 3,517,479), 1,671 s (about 1 block a second) |
+| Pruned (older than 30 days) | 571 blocks |
+| Coverage | blocks 3,483,075 .. 3,517,479, 2026-09-14 12:02 to 2026-10-14 11:56 UTC |
+
+Rows after the backfill: 34,405 blocks, 93,303 turnstile events, 114,132
+address rows, 9,633 pool migrations.
+
+**Bucket plan:** 5 bits (32 buckets), smallest bucket 1,595 addresses, largest
+1,762, over 53,460 distinct transparent addresses. Target of 1,000 met.
+
+**Last 24 hours:**
+
+| Pool | Shield | Unshield | ZEC in | ZEC out |
+|---|---:|---:|---:|---:|
+| Ironwood | 758 | 1,322 | 20,048.27 | 19,641.70 |
+| Sapling | 100 | 121 | 1,046.92 | 1,343.67 |
+| Orchard | 0 | 12 | 0 | 957.33 |
+| **Total** | **858** | **1,455** | **21,095.19** | **21,942.71** |
+
+Dust: 14 shields and 631 unshields. Pool migrations: 85 (1,983.95 ZEC left
+their source pools).
+
+### Collector check
+
+Two `start --once` cycles after the backfill:
+
+- `+19 blocks, +39 events, +5 migrations, indexed 3517498, tip 3517498, 20.3s`
+- `+1 blocks, +1 events, +0 migrations, indexed 3517499, tip 3517499, 13.8s`
+
+### Problems found and fixed
+
+- **Rate-limit check paused on every keyed request.** Keyed 3xpl responses have
+  no `X-RateLimit-Remaining` header, and `Number(null)` is 0, so the client
+  thought the quota was spent and waited 30 s per block. Fixed (a missing
+  header now means "no quota") and covered by tests; the backfill was stopped
+  and resumed, skipping the 29 dumps already loaded.
+- **`pnpm deploy` copied `indexer/.env` into the deploy folder** during a local
+  test of the Docker bundle. The copy was deleted at once; `files` allowlists in
+  the package manifests and `.dockerignore` now keep `.env` out of bundles and images.
+- node-postgres warned that `sslmode=require` is treated as `verify-full`. The
+  client now states `verify-full` explicitly (same, strict behaviour).
+- The collector logged a misleading "dumps key not set" line; it now only does so
+  for callers that use dumps.
+
+### Open
+
+- The 3xpl test key's long-term quota is unknown; the gap fill ran at about
+  1 block a second without throttling.
+- The Docker image has not been built locally (Docker Desktop was not running);
+  the same `pnpm deploy` bundle was run directly instead.
