@@ -1,8 +1,8 @@
 // Helpers for the website's read-only database role (see create-web-role.ts).
 
 export const WEB_ROLE = "web_readonly";
-/** The only tables the website reads. Add to this list (and re-run) when a page needs more. */
-export const WEB_TABLES = ["turnstile_events", "meta"] as const;
+/** The only table the website reads: pre-built public payloads. Add to this list (and re-run) only if a page needs more. */
+export const WEB_TABLES = ["snapshots"] as const;
 
 /** Replaces or appends KEY=value in dotenv text, keeping every other line. */
 export function upsertEnvLine(text: string, key: string, value: string): string {

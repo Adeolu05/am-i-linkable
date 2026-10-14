@@ -123,14 +123,16 @@ async function main() {
   const web = new pg.Client({ connectionString: withStrictSsl(url), connectionTimeoutMillis: 15_000 });
   await web.connect();
   try {
-    const canSelect = await web.query("select count(*) from turnstile_events").then(() => true, () => false);
+    const canSelect = await web.query("select key from snapshots limit 1").then(() => true, () => false);
     const yes = (b: boolean) => (b ? "yes" : "NO");
-    console.log(`verify: SELECT turnstile_events allowed: ${yes(canSelect)}`);
-    console.log(`verify: INSERT refused: ${yes(await refused(web, "insert into meta (key, value) values ('_probe', '1')"))}`);
-    console.log(`verify: UPDATE refused: ${yes(await refused(web, "update meta set value = value where key = 'tip_height'"))}`);
-    console.log(`verify: DELETE refused: ${yes(await refused(web, "delete from meta where key = '_probe'"))}`);
+    console.log(`verify: SELECT snapshots allowed: ${yes(canSelect)}`);
+    console.log(`verify: INSERT refused: ${yes(await refused(web, "insert into snapshots (key, generated_at, etag, row_count, json_bytes, body_gzip) values ('_probe', now(), 'x', 0, 0, '')"))}`);
+    console.log(`verify: UPDATE refused: ${yes(await refused(web, "update snapshots set etag = etag"))}`);
+    console.log(`verify: DELETE refused: ${yes(await refused(web, "delete from snapshots where key = '_probe'"))}`);
     console.log(`verify: CREATE TABLE refused: ${yes(await refused(web, "create table _probe (x int)"))}`);
-    console.log(`verify: SELECT event_addresses refused (not granted): ${yes(await refused(web, "select 1 from event_addresses limit 1"))}`);
+    for (const t of ["turnstile_events", "event_addresses", "meta"]) {
+      console.log(`verify: SELECT ${t} refused (not granted): ${yes(await refused(web, `select 1 from ${t} limit 1`))}`);
+    }
   } finally {
     await web.end();
   }
