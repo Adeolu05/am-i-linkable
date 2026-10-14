@@ -14,7 +14,9 @@ import {
   setMeta,
   writeBlocks,
 } from "./db/store";
+import { describeError } from "./env";
 import { blockToRows, type BlockRows, type SourceBlock } from "./ingest";
+import { buildShieldsSnapshot, formatSnapshot, type SnapshotInfo } from "./snapshot";
 
 export interface BlockSource {
   tipHeight(): Promise<number>;
@@ -31,6 +33,8 @@ export interface CycleOptions {
   /** Upper bound on blocks fetched per cycle; the collector loops again immediately if it falls behind. */
   maxBlocksPerCycle?: number;
   pruneEveryMs?: number;
+  /** Rebuild the public shields snapshot after writing (default true). */
+  snapshot?: boolean;
 }
 
 export interface CycleResult {
@@ -44,6 +48,10 @@ export interface CycleResult {
   pruned: number;
   /** Blocks still between the indexed height and the tip after this cycle. */
   behind: number;
+  /** The rebuilt public payload, or null when skipped or failed. */
+  snapshot: SnapshotInfo | null;
+  /** Log-safe reason the snapshot failed; the cycle's blocks are still committed. */
+  snapshotError: string | null;
   durationMs: number;
 }
 
@@ -104,6 +112,18 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
       return { written, pruned };
     });
 
+    // Rebuild the public payload from the committed data. A failure here is reported
+    // but does not undo the cycle; the previous snapshot keeps being served.
+    let snapshot: SnapshotInfo | null = null;
+    let snapshotError: string | null = null;
+    if (opts.snapshot !== false) {
+      try {
+        snapshot = await buildShieldsSnapshot(db, now());
+      } catch (err) {
+        snapshotError = describeError(err);
+      }
+    }
+
     const indexedHeight = rows.length > 0 ? to : stored;
     return {
       blocksAdded: result.written.blocks,
@@ -114,6 +134,8 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
       reorgFrom,
       pruned: result.pruned,
       behind: indexedHeight === null ? tip : Math.max(0, tip - indexedHeight),
+      snapshot,
+      snapshotError,
       durationMs: Date.now() - started,
     };
   } finally {
@@ -132,6 +154,8 @@ export function formatCycle(r: CycleResult): string {
   if (r.behind > 0) parts.push(`behind ${r.behind}`);
   if (r.reorgFrom !== null) parts.push(`reorg from ${r.reorgFrom}`);
   if (r.pruned > 0) parts.push(`pruned ${r.pruned} blocks`);
+  if (r.snapshot) parts.push(formatSnapshot(r.snapshot));
+  if (r.snapshotError) parts.push(`snapshot failed: ${r.snapshotError}`);
   parts.push(`${(r.durationMs / 1000).toFixed(1)}s`);
   return `cycle: ${parts.join(", ")}`;
 }

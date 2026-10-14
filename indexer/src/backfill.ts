@@ -29,6 +29,7 @@ import {
 import { emptyDumpStats, readDumpFile } from "./dumps";
 import { DATA_DIR, describeError, loadEnv, requireEnv } from "./env";
 import { blockToRows, type BlockRows, type SourceBlock } from "./ingest";
+import { buildShieldsSnapshot, formatSnapshot } from "./snapshot";
 import { minIntervalFromEnv, threeXplBlockSource, ThreeXplClient, type DumpInfo } from "./sources/threexpl";
 
 const DUMP_DIR = path.join(DATA_DIR, "3xpl-dumps");
@@ -144,6 +145,8 @@ async function main() {
     const pruned = await pruneBefore(db, cutoff);
     await setMeta(db, "last_prune_at", new Date().toISOString());
     const { plan, stats } = await refreshMeta(db, new Date(), tip);
+    const snapshot = await buildShieldsSnapshot(db, new Date());
+    console.log(formatSnapshot(snapshot));
     const after = await tableCounts(db);
 
     const inserted = Object.fromEntries(Object.entries(after).map(([k, v]) => [k, v - (before[k] ?? 0)]));
@@ -157,6 +160,7 @@ async function main() {
           prunedBlocks: pruned,
           coverage: stats.coverage,
           bucketPlan: plan,
+          snapshot,
           last24h: stats.windows["24h"],
           distinctTransparentAddresses: stats.distinctTransparentAddresses,
         },

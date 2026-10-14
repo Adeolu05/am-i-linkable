@@ -7,7 +7,10 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import { runCycle, type BlockSource } from "./cycle";
 import type { DbHandle } from "./db/client";
-import { eventAddresses, indexedBlocks, turnstileEvents } from "./db/schema";
+import { gunzipSync, brotliDecompressSync } from "node:zlib";
+import { decodeShields, type ShieldsPayload } from "@ail/core";
+import { eventAddresses, indexedBlocks, snapshots, turnstileEvents } from "./db/schema";
+import { buildShieldsSnapshot, etagFor, SHIELDS_SNAPSHOT_KEY } from "./snapshot";
 import { getMeta, writeBlocks, type Db } from "./db/store";
 import { blockToRows, type SourceBlock } from "./ingest";
 
@@ -175,5 +178,67 @@ describe("runCycle", () => {
     };
     await expect(runCycle({ source: chain, openDb: handle, now: () => NOW })).rejects.toThrow("source down");
     expect([opened, closed]).toEqual([1, 1]);
+  });
+});
+
+describe("shields snapshot", () => {
+  const T3 = "t1WZY9kwRXkj68wGA1m8twRf63DkmqZuQnJ";
+  const shieldBlock = (height: number, txid: string, amount: bigint, time: string): SourceBlock => ({
+    height,
+    hash: `s-${height}`,
+    time,
+    source: "api",
+    txs: [
+      {
+        txid,
+        blockHeight: height,
+        time,
+        effects: [
+          { address: T3, effectZat: -(amount + 15_000n) },
+          { address: "sapling-pool", effectZat: amount },
+          { address: "the-void", effectZat: 15_000n },
+        ],
+      },
+    ],
+  });
+  const readSnapshot = async () => (await db.select().from(snapshots))[0]!;
+  const decode = (gz: Uint8Array) => JSON.parse(gunzipSync(gz).toString("utf8")) as ShieldsPayload;
+
+  it("is rebuilt at the end of a cycle with shields only, dust excluded and txids cut to 12 characters", async () => {
+    const full = "c".repeat(64);
+    const chain = new FakeChain(1000);
+    await runCycle({ source: chain, openDb: handle, now: () => NOW, maxBlocksPerCycle: 2, snapshot: false });
+    await writeBlocks(db, [
+      blockToRows(shieldBlock(900, full, 250_000_000n, "2026-10-13T10:00:00.000Z")),
+      blockToRows(shieldBlock(901, "d".repeat(64), 50_000n, "2026-10-13T11:00:00.000Z")), // dust
+      blockToRows(shieldBlock(902, "e".repeat(64), 300_000_000n, "2026-09-01T00:00:00.000Z")), // outside 30 days
+    ]);
+    // Only re-verify the two fake-chain blocks; the shield blocks above are not on the fake chain.
+    const r = await runCycle({ source: chain, openDb: handle, now: () => NOW, reorgDepth: 2 });
+    expect(r.snapshotError).toBeNull();
+    expect(r.snapshot?.rows).toBe(1);
+
+    const row = await readSnapshot();
+    expect(row.key).toBe(SHIELDS_SNAPSHOT_KEY);
+    const payload = decode(row.bodyGzip);
+    expect(payload.tipHeight).toBe(1000);
+    expect(payload.rows).toEqual([[0, 250_000_000, 1, "cccccccccccc"]]);
+    const json = gunzipSync(row.bodyGzip);
+    expect(json.toString()).not.toContain(full);
+    expect(row.etag).toBe(etagFor(json));
+    expect(row.jsonBytes).toBe(json.length);
+    expect(decodeShields(payload)[0]).toMatchObject({ amountZat: 250_000_000, pool: "sapling", txidPrefix: "cccccccccccc" });
+  });
+
+  it("stores brotli when it fits the time budget and skips it otherwise", async () => {
+    await writeBlocks(db, [blockToRows(shieldBlock(900, "f".repeat(64), 250_000_000n, "2026-10-13T10:00:00.000Z"))]);
+    const withBr = await buildShieldsSnapshot(db, NOW, 30_000);
+    expect(withBr.brBytes).not.toBeNull();
+    const row = await readSnapshot();
+    expect(brotliDecompressSync(row.bodyBr!).equals(gunzipSync(row.bodyGzip))).toBe(true);
+
+    const noBr = await buildShieldsSnapshot(db, NOW, 0);
+    expect(noBr.brBytes).toBeNull();
+    expect((await readSnapshot()).bodyBr).toBeNull();
   });
 });

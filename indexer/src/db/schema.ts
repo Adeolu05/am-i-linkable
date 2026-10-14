@@ -114,3 +114,21 @@ export const meta = pgTable("meta", {
   value: jsonb("value").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Pre-built, pre-compressed public payloads, one row per key (e.g. "shields-v1").
+ * The collector rewrites them at the end of each cycle; the website only reads
+ * this table, so a request never has to scan events.
+ */
+export const snapshots = pgTable("snapshots", {
+  key: text("key").primaryKey(),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull(),
+  tipHeight: integer("tip_height"),
+  /** Weak ETag of the uncompressed JSON; identical for every encoding. */
+  etag: text("etag").notNull(),
+  rowCount: integer("row_count").notNull(),
+  jsonBytes: integer("json_bytes").notNull(),
+  bodyGzip: bytea("body_gzip").notNull(),
+  /** Optional: only stored when brotli finished within the cycle's time budget. */
+  bodyBr: bytea("body_br"),
+});
