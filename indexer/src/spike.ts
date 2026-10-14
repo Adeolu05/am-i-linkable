@@ -12,7 +12,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { DEFAULT_MIN_BUCKET_SIZE, planBuckets } from "@ail/core";
-import { blockToTxs, ThreeXplClient, type BlockEvents } from "./sources/threexpl";
+import { blockToTxs, minIntervalFromEnv, ThreeXplClient, type BlockEvents } from "./sources/threexpl";
 import { classifyTx, POOLS, type PoolMigrationEvent, type TurnstileEvent, type TxClass } from "./turnstile";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..");
@@ -83,11 +83,10 @@ async function main() {
   const count = Number(values.blocks);
   if (!Number.isInteger(count) || count < 1) throw new Error("--blocks must be a positive integer");
 
-  const minInterval = Number(process.env.THREEXPL_MIN_INTERVAL_MS);
   const client = new ThreeXplClient({
     apiKey: process.env.THREEXPL_API_KEY,
     dumpsKey: process.env.THREEXPL_DUMPS_KEY,
-    minIntervalMs: Number.isFinite(minInterval) && minInterval > 0 ? minInterval : undefined,
+    minIntervalMs: minIntervalFromEnv(process.env.THREEXPL_MIN_INTERVAL_MS),
     log: (m) => console.log(`  [3xpl] ${m}`),
   });
   await mkdir(CACHE_DIR, { recursive: true });

@@ -66,7 +66,7 @@ Optional settings go in `indexer/.env` (copy from `indexer/.env.example`, never 
 | Variable | Purpose |
 |---|---|
 | `THREEXPL_API_KEY` | Use the keyed `api.3xpl.com` endpoint instead of the sandbox. |
-| `THREEXPL_MIN_INTERVAL_MS` | Minimum delay between requests (default 2400 ms keyless, about 25 a minute; 250 ms keyed). |
+| `THREEXPL_MIN_INTERVAL_MS` | Minimum delay between requests (default 2400 ms keyless, about 25 a minute; 1500 ms keyed). |
 
 Output:
 
@@ -96,6 +96,7 @@ Names only; put the values in `indexer/.env` locally (see
 | `THREEXPL_API_KEY` | backfill, start | 3xpl JSON API token. Optional (falls back to the rate-limited sandbox). |
 | `THREEXPL_DUMPS_KEY` | backfill | 3xpl dumps token. Optional (without it the backfill uses the JSON API only). |
 | `INTERVAL_MINUTES` | start | Minutes between cycles (default 10). |
+| `THREEXPL_MIN_INTERVAL_MS` | backfill, start | Minimum gap between 3xpl requests (default 1500 ms with a key, 2400 ms without). |
 
 ### Locally (PowerShell 7)
 

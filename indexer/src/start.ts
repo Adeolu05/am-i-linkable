@@ -10,7 +10,7 @@
 import { formatCycle, runCycle } from "./cycle";
 import { openDb } from "./db/client";
 import { describeError, loadEnv, requireEnv } from "./env";
-import { threeXplBlockSource, ThreeXplClient } from "./sources/threexpl";
+import { minIntervalFromEnv, threeXplBlockSource, ThreeXplClient } from "./sources/threexpl";
 
 async function main() {
   loadEnv();
@@ -20,6 +20,7 @@ async function main() {
 
   const client = new ThreeXplClient({
     apiKey: process.env.THREEXPL_API_KEY,
+    minIntervalMs: minIntervalFromEnv(process.env.THREEXPL_MIN_INTERVAL_MS),
     log: (m) => console.log(`3xpl: ${m}`),
   });
   const source = threeXplBlockSource(client);

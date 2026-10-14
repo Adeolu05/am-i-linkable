@@ -29,7 +29,7 @@ import {
 import { emptyDumpStats, readDumpFile } from "./dumps";
 import { DATA_DIR, describeError, loadEnv, requireEnv } from "./env";
 import { blockToRows, type BlockRows, type SourceBlock } from "./ingest";
-import { threeXplBlockSource, ThreeXplClient, type DumpInfo } from "./sources/threexpl";
+import { minIntervalFromEnv, threeXplBlockSource, ThreeXplClient, type DumpInfo } from "./sources/threexpl";
 
 const DUMP_DIR = path.join(DATA_DIR, "3xpl-dumps");
 const DAY_MS = 86_400_000;
@@ -68,6 +68,7 @@ async function main() {
   const databaseUrl = requireEnv("DATABASE_URL", "Set it to the Neon pooled connection string.");
   const client = new ThreeXplClient({
     apiKey: process.env.THREEXPL_API_KEY,
+    minIntervalMs: minIntervalFromEnv(process.env.THREEXPL_MIN_INTERVAL_MS),
     dumpsKey: process.env.THREEXPL_DUMPS_KEY,
     log: (m) => console.log(`3xpl: ${m}`),
   });

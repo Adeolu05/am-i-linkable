@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { quotaNearlyExhausted, ThreeXplClient, usableKey } from "./threexpl";
+import { KEYED_MIN_INTERVAL_MS, minIntervalFromEnv, quotaNearlyExhausted, ThreeXplClient, usableKey } from "./threexpl";
 
 describe("quotaNearlyExhausted", () => {
   it("does not pause when the header is absent (keyed API)", () => {
@@ -68,5 +68,36 @@ describe("ThreeXplClient dumps-key message", () => {
     const logs: string[] = [];
     new ThreeXplClient({ apiKey: "test-value-1", log: (m) => logs.push(m) });
     expect(logs).toEqual([]);
+  });
+});
+
+describe("request spacing", () => {
+  it("parses THREEXPL_MIN_INTERVAL_MS, falling back to the default when empty or invalid", () => {
+    expect(minIntervalFromEnv(undefined)).toBeUndefined();
+    expect(minIntervalFromEnv("")).toBeUndefined();
+    expect(minIntervalFromEnv("abc")).toBeUndefined();
+    expect(minIntervalFromEnv("-5")).toBeUndefined();
+    expect(minIntervalFromEnv("1500")).toBe(1500);
+    expect(new ThreeXplClient({ apiKey: "test-value-1" })["minIntervalMs"]).toBe(KEYED_MIN_INTERVAL_MS);
+    expect(KEYED_MIN_INTERVAL_MS).toBe(1500);
+  });
+
+  it("leaves at least the minimum gap between consecutive requests", async () => {
+    const calls: number[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls.push(Date.now());
+      return new Response(JSON.stringify({ data: { blocks: { "100": { hash: "h", time: "2026-10-14T00:00:00Z" } } } }), {
+        status: 200,
+      });
+    }) as typeof fetch;
+    try {
+      const c = new ThreeXplClient({ apiKey: "test-value-1", minIntervalMs: 120 });
+      for (let i = 0; i < 4; i++) await c.tipHeight();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(calls).toHaveLength(4);
+    for (let i = 1; i < calls.length; i++) expect(calls[i]! - calls[i - 1]!).toBeGreaterThanOrEqual(115);
   });
 });

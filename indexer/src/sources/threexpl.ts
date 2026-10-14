@@ -12,6 +12,17 @@ const KEYED_BASE = "https://api.3xpl.com";
 const MODULE = "zcash-main";
 const PAGE_LIMIT = 1000;
 const MAX_ATTEMPTS = 8;
+/** Minimum gap between requests. The keyed API returned HTTP 429 during fast catch-up at 250 ms. */
+export const KEYED_MIN_INTERVAL_MS = 1500;
+/** Keeps the keyless sandbox near 25 requests a minute (its quota is about 30). */
+export const SANDBOX_MIN_INTERVAL_MS = 2400;
+
+/** Parses THREEXPL_MIN_INTERVAL_MS; undefined (use the default) when empty or invalid. */
+export function minIntervalFromEnv(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const ms = Number(value);
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+}
 
 interface ApiEvent {
   transaction: string;
@@ -92,7 +103,7 @@ export class ThreeXplClient {
     this.dumpsKey = usableKey(opts.dumpsKey);
     this.keyed = Boolean(this.apiKey);
     this.base = this.keyed ? KEYED_BASE : SANDBOX_BASE;
-    this.minIntervalMs = opts.minIntervalMs ?? (this.keyed ? 250 : 2400);
+    this.minIntervalMs = opts.minIntervalMs ?? (this.keyed ? KEYED_MIN_INTERVAL_MS : SANDBOX_MIN_INTERVAL_MS);
     this.log = opts.log ?? (() => {});
     // Never log key values, only whether one is in use.
     if (!this.apiKey) this.log("API key not set (THREEXPL_API_KEY): using the keyless sandbox");
