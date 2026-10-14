@@ -207,3 +207,26 @@ Two `start --once` cycles after the backfill:
   1 block a second without throttling.
 - The Docker image has not been built locally (Docker Desktop was not running);
   the same `pnpm deploy` bundle was run directly instead.
+
+## 2026-10-14 (later): Matching and "Before you move"
+
+- **Collector fix:** 1.5 s minimum gap between keyed 3xpl requests
+  (`THREEXPL_MIN_INTERVAL_MS`), after HTTP 429s while catching up. A redeploy
+  is safe: SIGTERM between cycles exits cleanly, and a kill mid-cycle rolls
+  back that cycle's single transaction.
+- **Read-only role:** `create-web-role` created `web_readonly`. Verified: SELECT
+  allowed; INSERT, UPDATE, DELETE, CREATE TABLE and reading `event_addresses`
+  all refused.
+- **Matching (packages/core):** fee band of 100,000 zat (99th percentile of 30
+  days of unshield fees: median 15,000, p95 50,000). See docs/MATCHING.md.
+- **GET /api/v1/shields:** 45,991 non-dust shields; 4.0 MB raw, 2.0 MB gzip,
+  1.78 MB brotli. Uses ETag/304, an in-memory 5-minute cache with background
+  refresh, and `s-maxage=300`. A cold start takes about 17 s (Neon wake plus
+  the query); warm requests take about 10 ms.
+- **/check:** checks run in the browser. Verified in a browser: requests go
+  only to the site's own origin (page, its static assets, `/api/v1/shields`),
+  and a check adds 0 requests.
+- **Examples (real data):**
+  - 5.15861741 ZEC: high (1 near match, 9 minutes old)
+  - 1.53804745 ZEC: medium (4 matches)
+  - 0.99985 ZEC: low (281 matches, 51 exact)
