@@ -29,7 +29,8 @@ export interface Match {
   ageMs: number;
   amountZat: number;
   pool: Pool;
-  txid: string;
+  /** First 12 hex characters of the deposit's transaction id. */
+  txidPrefix: string;
   /** "exact": same amount; "near": deposit minus withdrawal is within the fee band. */
   kind: "exact" | "near";
   differenceZat: number;
@@ -244,7 +245,7 @@ export function checkWithdrawal(amountZat: bigint, now: number, shields: ShieldE
     ageMs: now - e.time,
     amountZat: e.amountZat,
     pool: e.pool,
-    txid: e.txid,
+    txidPrefix: e.txidPrefix,
     kind: e.amountZat === p ? "exact" : "near",
     differenceZat: e.amountZat - p,
   }));

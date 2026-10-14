@@ -22,7 +22,7 @@ const ZEC = 100_000_000;
 let seq = 0;
 function shield(amountZat: number, ageMs: number, pool: ShieldEvent["pool"] = "ironwood"): ShieldEvent {
   seq++;
-  return { time: NOW - ageMs, amountZat, pool, txid: seq.toString(16).padStart(64, "0") };
+  return { time: NOW - ageMs, amountZat, pool, txidPrefix: seq.toString(16).padStart(12, "0") };
 }
 
 /** Background noise: deposits far from the amounts under test. */
@@ -203,11 +203,14 @@ describe("ShieldIndex and the wire format", () => {
     expect(idx.distinctAmountsBetween(0, 100)).toEqual([10, 20, 30]);
   });
 
-  it("encodes compactly and decodes back", () => {
-    const events = [shield(985_000, 2 * HOUR, "sapling"), shield(99_975_000, HOUR, "ironwood")];
+  it("encodes compactly, sends only a 12-character txid prefix, and decodes back", () => {
+    const full = "ab".repeat(32);
+    const events = [shield(985_000, 2 * HOUR, "sapling"), shield(99_975_000, HOUR, "ironwood")].map(({ txidPrefix: _, ...e }) => ({ ...e, txid: full }));
     const payload = encodeShields(events, { generatedAt: "2026-10-14T12:00:00.000Z", tipHeight: 3_517_499, windowDays: 30 });
-    expect(payload.rows[0]).toEqual([0, 985_000, 1, events[0]!.txid]);
+    expect(payload.rows[0]).toEqual([0, 985_000, 1, "abababababab"]);
+    expect(JSON.stringify(payload)).not.toContain(full);
     const back = decodeShields(JSON.parse(JSON.stringify(payload)));
+    expect(back[0]!.txidPrefix).toBe("abababababab");
     expect(back.map((e) => [Math.floor(e.time / 1000), e.amountZat, e.pool])).toEqual(
       events.map((e) => [Math.floor(e.time / 1000), e.amountZat, e.pool]),
     );
