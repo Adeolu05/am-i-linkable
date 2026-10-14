@@ -30,8 +30,6 @@ const RISK_STYLE: Record<Risk, { label: string; badge: string; ring: string; ico
 
 const POOL_LABEL: Record<string, string> = { sprout: "Sprout", sapling: "Sapling", orchard: "Orchard", ironwood: "Ironwood" };
 
-const shortTx = (txid: string) => `${txid.slice(0, 10)}…${txid.slice(-6)}`;
-
 export function CheckClient() {
   const [data, setData] = useState<DataState>({ status: "loading" });
   const [input, setInput] = useState("");
@@ -181,7 +179,7 @@ function ResultCard({ result, amount, onTry }: { result: CheckResult; amount: st
       {result.matches.length > 0 && result.risk !== "low" && (
         <div className="space-y-2">
           <h3 className="font-semibold">Matching deposits</h3>
-          {/* relative: keeps the visually hidden cells inside the scroll area on narrow screens */}
+          {/* relative: keeps the visually hidden caption inside the scroll area on narrow screens */}
           <div className="relative overflow-x-auto">
             <table className="w-full min-w-[32rem] text-left text-sm">
               <caption className="sr-only">Recent deposits that match this amount</caption>
@@ -190,12 +188,12 @@ function ResultCard({ result, amount, onTry }: { result: CheckResult; amount: st
                   <th scope="col" className="py-1.5 pr-3 font-medium">When</th>
                   <th scope="col" className="py-1.5 pr-3 font-medium">Amount (ZEC)</th>
                   <th scope="col" className="py-1.5 pr-3 font-medium">Pool</th>
-                  <th scope="col" className="py-1.5 font-medium">Transaction</th>
+                  <th scope="col" className="py-1.5 font-medium">Transaction ID (start)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {result.matches.map((m) => (
-                  <tr key={m.txid}>
+                {result.matches.map((m, i) => (
+                  <tr key={`${m.txidPrefix}-${i}`}>
                     <td className="py-2 pr-3">
                       <time dateTime={new Date(m.time).toISOString()} title={new Date(m.time).toUTCString()}>
                         {describeAge(m.ageMs)} ago
@@ -206,15 +204,16 @@ function ResultCard({ result, amount, onTry }: { result: CheckResult; amount: st
                       {m.kind === "near" && <span className="ml-1 text-xs text-(--ink-muted)">(+{formatZec(m.differenceZat)})</span>}
                     </td>
                     <td className="py-2 pr-3">{POOL_LABEL[m.pool] ?? m.pool}</td>
-                    <td className="py-2 font-mono text-xs">
-                      <span title={m.txid}>{shortTx(m.txid)}</span>
-                      <span className="sr-only">full id {m.txid}</span>
-                    </td>
+                    <td className="py-2 font-mono text-xs">{m.txidPrefix}…</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <p className="text-xs leading-relaxed text-(--ink-muted)">
+            We don&rsquo;t link to block explorers: opening one would tell that site which transaction you&rsquo;re
+            interested in. Compare this ID with the one in your wallet.
+          </p>
         </div>
       )}
 
