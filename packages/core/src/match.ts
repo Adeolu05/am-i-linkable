@@ -135,22 +135,65 @@ export function describeAge(ms: number): string {
   return plural(Math.round(ms / DAY), "day");
 }
 
-function commonAmounts(index: ShieldIndex, p: number, limit = 3): CommonAmount[] {
-  // Candidates: every deposit amount between half the plan and the plan itself,
-  // plus each of those minus the typical 15,000-zat fee.
-  const seen = new Set<number>();
-  const out: CommonAmount[] = [];
-  for (const x of index.distinctAmountsBetween(Math.ceil(p / 2), p + FEE_BAND_ZAT)) {
-    for (const a of [x, x - 15_000]) {
-      if (a > p || a < p / 2 || isDust(BigInt(a)) || seen.has(a)) continue;
-      seen.add(a);
-      const n = index.anonymitySet(a);
-      if (n >= COMMON_SET_SIZE) out.push({ amountZat: a, anonymitySet: n });
-    }
+/** Number of significant decimal places in ZEC (0 for whole ZEC, 8 for 1-zat precision). */
+export function decimals(zat: number): number {
+  let d = 8;
+  let z = zat;
+  while (d > 0 && z % 10 === 0) {
+    z /= 10;
+    d--;
   }
-  // Prefer the biggest crowd, then the amount closest to the plan.
-  out.sort((a, b) => b.anonymitySet - a.anonymitySet || b.amountZat - a.amountZat);
-  return out.slice(0, limit);
+  return d;
+}
+
+/** Round amounts at or below p, e.g. 4.0, 4.9, 4.95, 4.99 for p = 4.9973. */
+function roundCandidates(p: number): number[] {
+  const out: number[] = [];
+  for (const step of [1_000_000_000, 100_000_000, 50_000_000, 10_000_000, 5_000_000, 1_000_000, 500_000, 100_000]) {
+    const top = Math.floor(p / step) * step;
+    for (let k = 0; k < 3; k++) out.push(top - k * step);
+  }
+  return out;
+}
+
+/**
+ * Lower amounts that blend in. Candidates are deposit amounts between half the
+ * plan and the plan (and each minus the typical 15,000-zat fee) plus round
+ * numbers. Candidates within one fee band of each other describe the same
+ * crowd, so each group contributes one suggestion: the roundest amount that
+ * keeps at least 80% of the group's best crowd.
+ */
+function commonAmounts(index: ShieldIndex, p: number, limit = 3): CommonAmount[] {
+  const seen = new Set<number>();
+  const all: CommonAmount[] = [];
+  const consider = (a: number) => {
+    if (a > p || a < p / 2 || isDust(BigInt(a)) || seen.has(a)) return;
+    seen.add(a);
+    const n = index.anonymitySet(a);
+    if (n >= COMMON_SET_SIZE) all.push({ amountZat: a, anonymitySet: n });
+  };
+  for (const x of index.distinctAmountsBetween(Math.ceil(p / 2), p + FEE_BAND_ZAT)) {
+    consider(x);
+    consider(x - 15_000);
+  }
+  roundCandidates(p).forEach(consider);
+
+  all.sort((a, b) => a.amountZat - b.amountZat);
+  const groups: CommonAmount[][] = [];
+  for (const c of all) {
+    const last = groups[groups.length - 1];
+    if (last && c.amountZat - last[last.length - 1]!.amountZat <= FEE_BAND_ZAT) last.push(c);
+    else groups.push([c]);
+  }
+  const picks = groups.map((g) => {
+    const best = Math.max(...g.map((c) => c.anonymitySet));
+    const good = g.filter((c) => c.anonymitySet >= best * 0.8);
+    good.sort((a, b) => decimals(a.amountZat) - decimals(b.amountZat) || b.anonymitySet - a.anonymitySet);
+    return { pick: good[0]!, best };
+  });
+  // Biggest crowds first, then the amount closest to the plan.
+  picks.sort((a, b) => b.best - a.best || b.pick.amountZat - a.pick.amountZat);
+  return picks.slice(0, limit).map((x) => x.pick);
 }
 
 /** Up to three parts, each blending in, covering at least 95% of the plan. */

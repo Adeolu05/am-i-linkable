@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkWithdrawal,
   COMMON_SET_SIZE,
+  decimals,
   decodeShields,
   DUST_MESSAGE,
   encodeShields,
@@ -151,11 +152,25 @@ describe("checkWithdrawal", () => {
     const r = result(target, [...noise, ...crowd, shield(target, HOUR)]);
     expect(r.risk).toBe("high");
     const amounts = r.suggestions.commonAmounts?.map((c) => c.amountZat) ?? [];
-    expect(amounts).toContain(common);
+    // One suggestion covers the crowd: an amount at most one fee band below it (a rounder one is preferred).
+    expect(amounts.some((a) => a <= common && common - a <= FEE_BAND_ZAT)).toBe(true);
     for (const c of r.suggestions.commonAmounts ?? []) {
       expect(c.amountZat).toBeLessThanOrEqual(target);
       expect(c.anonymitySet).toBeGreaterThanOrEqual(COMMON_SET_SIZE);
     }
+  });
+
+  it("offers distinct, round suggestions rather than near-duplicates", () => {
+    // A crowd of slightly different deposits around 0.9996 ZEC.
+    const crowd = Array.from({ length: 60 }, (_, i) => shield(99_960_000 + (i % 7) * 1_111, (i + 2) * HOUR));
+    const target = 1 * ZEC + 53_804_745; // 1.53804745, unique and recent
+    const r = result(target, [...noise, ...crowd, shield(target, HOUR)]);
+    const picks = r.suggestions.commonAmounts ?? [];
+    expect(picks.length).toBeGreaterThan(0);
+    for (let i = 0; i < picks.length; i++)
+      for (let j = i + 1; j < picks.length; j++) expect(Math.abs(picks[i]!.amountZat - picks[j]!.amountZat)).toBeGreaterThan(FEE_BAND_ZAT);
+    // The roundest amount in the crowd's range is preferred over 0.99961111-style values.
+    expect(decimals(picks[0]!.amountZat)).toBeLessThanOrEqual(4);
   });
 
   it("offers a split only when no single common amount is close", () => {
