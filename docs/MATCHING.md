@@ -20,6 +20,13 @@ funded it, using only public amounts and timing?
   (`GET /api/v1/shields`; identical for every visitor). P itself never leaves
   the browser.
 
+Each deposit carries its time, amount, pool and the **first 12 hex characters
+of its transaction id** (48 bits). Full ids were 85% of the payload, which
+dropped from about 2.0 MB to about 0.65 MB gzipped (0.55 MB brotli); 12
+characters are plenty to compare with the id your wallet shows. The page never
+links to a block explorer, because opening one would tell that site which
+transaction you are interested in.
+
 ## Signals
 
 1. **Exact matches**: deposits of exactly P.

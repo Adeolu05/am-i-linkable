@@ -134,16 +134,21 @@ previous-output lookups), public Zebra RPC (none keyless).
 
 ### Published datasets (the API)
 
-The indexer emits static files. Every visitor who requests a file gets the same
-bytes.
+Every visitor who requests a file gets the same bytes. The collector builds
+each public payload at the end of every cycle, compresses it (gzip, plus brotli
+when it fits a 30-second budget) and stores it in one `snapshots` row; the
+website's read-only role can read that table and nothing else, so a request
+never scans events.
 
+- `GET /api/v1/shields` (live, snapshot `shields-v1`): every non-dust shield
+  from the last 30 days as compact rows `[timeOffset, amountZat, poolIndex,
+  txidPrefix]`, with the generation time and tip height. Only the first 12 hex
+  characters of each txid are included. ETag/304, `max-age=0`,
+  `s-maxage=300`. No addresses.
 - `GET /api/v1/meta.json`: dataset window, generation time, and the current
   bucket plan (`prefixBits`, `bucketCount`, `minBucketSize`,
   `targetMinBucketSize`, `meetsTarget`, `totalAddresses`). The site reads this
   to display the anonymity set.
-- `GET /api/v1/shielding/recent.json`: non-dust turnstile events from the last
-  30 days, minimal fields (height, time, pool, direction, amount, fee). No
-  addresses.
 - `GET /api/v1/buckets/<bits>/<bucket-id>.json`: for one bucket, the list of
   `{addressHash, events[]}` for transparent addresses that appear in any event.
 - `GET /api/v1/weather.json`: aggregates for the pool weather page.
@@ -158,7 +163,7 @@ are self-hosted via `next/font`.
 
 For someone planning to shield or unshield.
 
-1. The browser downloads `shielding/recent.json` (identical for everyone).
+1. The browser downloads `/api/v1/shields` (identical for everyone).
 2. The user enters a planned amount and direction. It never leaves the browser.
 3. If the amount is dust, the app shows the dust message and stops.
 4. Otherwise `core` finds non-dust events of the opposite direction whose
