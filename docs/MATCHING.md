@@ -70,8 +70,11 @@ Suggestions are shown only when the risk is medium or high.
   changes the level.
 - **Use a common amount instead**: amounts at or below P (down to half of P)
   whose anonymity set is at least 10. Candidates are the deposit amounts seen
-  in that range, and each of them minus the typical 15,000-zat fee. The three
-  largest crowds are shown.
+  in that range, each of them minus the typical 15,000-zat fee, and round
+  numbers (such as 4.0, 4.9, 4.99). Candidates within one fee band of each
+  other describe the same crowd, so each group gives one suggestion: the
+  roundest amount that keeps at least 80% of the group's largest crowd. The
+  three largest crowds are shown.
 - **Split**: up to three parts, each with an anonymity set of at least 10,
   together covering at least 95% of P (the remainder stays shielded). Offered
   only if no single common amount within 5% of P exists, because one common
