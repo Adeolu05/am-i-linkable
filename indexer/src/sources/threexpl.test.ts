@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { ThreeXplClient, usableKey } from "./threexpl";
+import { quotaNearlyExhausted, ThreeXplClient, usableKey } from "./threexpl";
+
+describe("quotaNearlyExhausted", () => {
+  it("does not pause when the header is absent (keyed API)", () => {
+    expect(quotaNearlyExhausted(null)).toBe(false);
+    expect(quotaNearlyExhausted("")).toBe(false);
+  });
+  it("pauses only when the sandbox reports 1 or fewer remaining", () => {
+    expect(quotaNearlyExhausted("29")).toBe(false);
+    expect(quotaNearlyExhausted("1")).toBe(true);
+    expect(quotaNearlyExhausted("0")).toBe(true);
+    expect(quotaNearlyExhausted("garbage")).toBe(false);
+  });
+});
 
 describe("usableKey", () => {
   it("treats empty and placeholder values as unset", () => {
@@ -47,5 +60,13 @@ describe("ThreeXplClient key handling", () => {
         checksum_algo: "sha256sum",
       }),
     ).rejects.toThrow(/dumps key not set/);
+  });
+});
+
+describe("ThreeXplClient dumps-key message", () => {
+  it("stays quiet about dumps for callers that never use them", () => {
+    const logs: string[] = [];
+    new ThreeXplClient({ apiKey: "test-value-1", log: (m) => logs.push(m) });
+    expect(logs).toEqual([]);
   });
 });

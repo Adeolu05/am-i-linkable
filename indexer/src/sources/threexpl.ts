@@ -64,6 +64,13 @@ export interface DumpInfo {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** True only when the server reports a remaining-requests value of 1 or less. A missing header means no quota. */
+export function quotaNearlyExhausted(header: string | null): boolean {
+  if (header === null || header.trim() === "") return false;
+  const remaining = Number(header);
+  return Number.isFinite(remaining) && remaining <= 1;
+}
+
 /** Treats empty values and .env.example placeholders ("your-...") as unset. */
 export function usableKey(value: string | undefined): string | undefined {
   const v = value?.trim();
@@ -89,7 +96,8 @@ export class ThreeXplClient {
     this.log = opts.log ?? (() => {});
     // Never log key values, only whether one is in use.
     if (!this.apiKey) this.log("API key not set (THREEXPL_API_KEY): using the keyless sandbox");
-    if (!this.dumpsKey) this.log("dumps key not set (THREEXPL_DUMPS_KEY): dump downloads disabled");
+    // Only mention the dumps key to callers that use dumps (they pass the option, even if empty).
+    if (!this.dumpsKey && "dumpsKey" in opts) this.log("dumps key not set (THREEXPL_DUMPS_KEY): dump downloads disabled");
   }
 
   private async get<T>(path: string): Promise<T> {
@@ -131,8 +139,8 @@ export class ThreeXplClient {
       }
 
       // Stay just under the quota rather than tripping 429s.
-      const remaining = Number(res.headers.get("x-ratelimit-remaining"));
-      if (Number.isFinite(remaining) && remaining <= 1) {
+      // Keyed responses carry no rate-limit headers; only the sandbox reports a quota.
+      if (quotaNearlyExhausted(res.headers.get("x-ratelimit-remaining"))) {
         this.log("rate-limit quota nearly exhausted, pausing 30s");
         this.lastRequestAt = Date.now() + 30_000 - this.minIntervalMs;
       }
