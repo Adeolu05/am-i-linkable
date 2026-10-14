@@ -230,3 +230,31 @@ Two `start --once` cycles after the backfill:
   - 5.15861741 ZEC: high (1 near match, 9 minutes old)
   - 1.53804745 ZEC: medium (4 matches)
   - 0.99985 ZEC: low (281 matches, 51 exact)
+
+## 2026-10-14 (evening): Smaller payload, snapshot-backed endpoint
+
+- **Txid prefixes:** the shields payload now carries only the first 12 hex
+  characters of each txid. The page shows them as plain text, with no explorer
+  links and a note on why. Payload: 45,912 shields, 1.61 MB raw, **650 KB
+  gzip, 549 KB brotli** (was 4.0 MB / 2.0 MB / 1.78 MB).
+- **Snapshots:** the collector (and the backfill) builds the compact payload at
+  the end of each cycle, compresses it (gzip, plus brotli within a 30 s budget;
+  brotli took about 3.5 s) and stores it in one `snapshots` row
+  (`shields-v1`, with ETag, tip height and generation time). The
+  `web_readonly` role was re-granted: SELECT on `snapshots` only. Verified:
+  writes refused, and reads of `turnstile_events`, `event_addresses` and
+  `meta` refused.
+- **Endpoint:** reads that one row. A cold start fetches the ETag and the
+  needed body in a single query; after that it only re-checks the ETag every
+  60 s. Measured from the development machine (far from Neon's region:
+  ~2.1 s TLS connect, ~2 s to download the body):
+
+| Request | Before | Now |
+|---|---:|---:|
+| Cold (fresh server) | 17–19 s | 5.1 s |
+| Warm | ~10 ms | 6–15 ms |
+| Revalidation (304) | n/a | 6 ms |
+
+- **Re-verified in the browser:** only same-origin requests (the page, its
+  static assets, `/api/v1/shields`); three checks added 0 requests. High,
+  medium and low examples unchanged.
