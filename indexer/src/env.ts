@@ -62,3 +62,18 @@ export function requireEnv(name: string, hint: string): string {
   if (!v) throw new Error(`${name} is not set. ${hint}`);
   return v;
 }
+
+/**
+ * node-postgres treats sslmode=require/prefer/verify-ca as verify-full (and warns
+ * about it). Make that explicit so the strict behaviour is stated rather than implied.
+ */
+export function withStrictSsl(connectionString: string): string {
+  try {
+    const u = new URL(connectionString);
+    const mode = u.searchParams.get("sslmode");
+    if (mode === "require" || mode === "prefer" || mode === "verify-ca") u.searchParams.set("sslmode", "verify-full");
+    return u.toString();
+  } catch {
+    return connectionString;
+  }
+}

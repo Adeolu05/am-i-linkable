@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { describeError, redact } from "./env";
+import { describeError, redact, withStrictSsl } from "./env";
 
 const FAKE_URL = "postgresql://app_owner:pw-not-real-123@ep-quiet-sky-a1b2c3-pooler.example.test/appdb?sslmode=require";
 const saved = { ...process.env };
@@ -30,5 +30,13 @@ describe("redact", () => {
     const line = describeError(err);
     expect(line).not.toMatch(/\n|ep-quiet-sky|example\.test/);
     expect(line).toMatch(/\[ETIMEDOUT\]$/);
+  });
+});
+
+describe("withStrictSsl", () => {
+  it("states verify-full explicitly and leaves other modes alone", () => {
+    expect(withStrictSsl("postgresql://u:p@h.example.test/db?sslmode=require")).toBe("postgresql://u:p@h.example.test/db?sslmode=verify-full");
+    expect(withStrictSsl("postgresql://u:p@h.example.test/db?sslmode=disable")).toBe("postgresql://u:p@h.example.test/db?sslmode=disable");
+    expect(withStrictSsl("not a url")).toBe("not a url");
   });
 });

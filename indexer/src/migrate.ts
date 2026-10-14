@@ -7,7 +7,7 @@ import path from "node:path";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
-import { describeError, INDEXER_ROOT, loadEnv, requireEnv } from "./env";
+import { describeError, INDEXER_ROOT, loadEnv, requireEnv, withStrictSsl } from "./env";
 
 async function main() {
   loadEnv();
@@ -15,7 +15,7 @@ async function main() {
     "DATABASE_URL_UNPOOLED",
     "Migrations need Neon's direct (non-pooled) connection string; add it to indexer/.env or the service environment.",
   );
-  const pool = new pg.Pool({ connectionString: url, max: 1, connectionTimeoutMillis: 15_000 });
+  const pool = new pg.Pool({ connectionString: withStrictSsl(url), max: 1, connectionTimeoutMillis: 15_000 });
   pool.on("error", (err) => console.error(`db: ${describeError(err)}`));
   try {
     const started = Date.now();

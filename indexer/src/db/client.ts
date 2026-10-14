@@ -5,7 +5,7 @@
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { describeError } from "../env";
+import { describeError, withStrictSsl } from "../env";
 import * as schema from "./schema";
 import type { Db } from "./store";
 
@@ -16,7 +16,7 @@ export interface DbHandle {
 
 export function openDb(connectionString: string, log: (msg: string) => void = console.error): DbHandle {
   const pool = new pg.Pool({
-    connectionString,
+    connectionString: withStrictSsl(connectionString),
     max: 2,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 15_000,
