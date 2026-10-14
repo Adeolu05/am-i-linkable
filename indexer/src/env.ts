@@ -11,7 +11,7 @@ export const INDEXER_ROOT = path.resolve(import.meta.dirname, "..");
 export const REPO_ROOT = path.resolve(INDEXER_ROOT, "..");
 export const DATA_DIR = path.join(REPO_ROOT, "data");
 
-const SECRET_VARS = ["DATABASE_URL", "DATABASE_URL_UNPOOLED", "THREEXPL_API_KEY", "THREEXPL_DUMPS_KEY"] as const;
+const SECRET_VARS = ["DATABASE_URL", "DATABASE_URL_UNPOOLED", "DATABASE_URL_READONLY", "THREEXPL_API_KEY", "THREEXPL_DUMPS_KEY"] as const;
 
 export function loadEnv(): void {
   // Existing environment variables win, so platform-provided values are never overridden.

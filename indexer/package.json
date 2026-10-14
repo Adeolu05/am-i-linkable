@@ -15,7 +15,8 @@
     "migrate": "tsx src/migrate.ts",
     "db:generate": "drizzle-kit generate",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "create-web-role": "tsx src/create-web-role.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.9",

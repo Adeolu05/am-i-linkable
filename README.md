@@ -130,6 +130,33 @@ it holds no database connections, so Neon can scale to zero.
 
 To build the image yourself: `docker build -f indexer/Dockerfile -t am-i-linkable-indexer .`
 
+## Website database role (read-only)
+
+The website reads Postgres as `web_readonly`, a login role that can only
+`SELECT` from `turnstile_events` and `meta`. Its sessions are read-only by
+default, and it cannot create tables or read anything else.
+
+```powershell
+pnpm --filter indexer create-web-role
+```
+
+This creates the role (using `DATABASE_URL_UNPOOLED`), re-applies its grants,
+writes the pooled read-only connection string to `apps/web/.env.local` as
+`DATABASE_URL_READONLY` (gitignored), and verifies that SELECT works while
+INSERT, UPDATE, DELETE and CREATE are refused. It never prints the password
+or the URL. Re-running it is safe; it only re-applies grants.
+
+**Rotating the password:**
+
+```powershell
+pnpm --filter indexer create-web-role -- --rotate
+```
+
+This sets a new random password, rewrites `apps/web/.env.local`, and verifies
+again. Then copy the new `DATABASE_URL_READONLY` from `apps/web/.env.local`
+into your web host's environment settings and redeploy the site. The old
+password stops working immediately, so update the host straight away.
+
 ## Other commands
 
 ```powershell
