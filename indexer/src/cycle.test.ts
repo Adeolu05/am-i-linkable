@@ -8,9 +8,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { runCycle, type BlockSource } from "./cycle";
 import type { DbHandle } from "./db/client";
 import { gunzipSync, brotliDecompressSync } from "node:zlib";
-import { decodeShields, type ShieldsPayload } from "@ail/core";
+import { decodeShields, type ShieldsPayload, type StatsPayload } from "@ail/core";
 import { eventAddresses, indexedBlocks, snapshots, turnstileEvents } from "./db/schema";
-import { buildShieldsSnapshot, etagFor, SHIELDS_SNAPSHOT_KEY } from "./snapshot";
+import { eq } from "drizzle-orm";
+import { buildShieldsSnapshot, etagFor, SHIELDS_SNAPSHOT_KEY, STATS_SNAPSHOT_KEY } from "./snapshot";
 import { getMeta, writeBlocks, type Db } from "./db/store";
 import { blockToRows, type SourceBlock } from "./ingest";
 
@@ -201,7 +202,7 @@ describe("shields snapshot", () => {
       },
     ],
   });
-  const readSnapshot = async () => (await db.select().from(snapshots))[0]!;
+  const readSnapshot = async (key = SHIELDS_SNAPSHOT_KEY) => (await db.select().from(snapshots).where(eq(snapshots.key, key)))[0]!;
   const decode = (gz: Uint8Array) => JSON.parse(gunzipSync(gz).toString("utf8")) as ShieldsPayload;
 
   it("is rebuilt at the end of a cycle with shields only, dust excluded and txids cut to 12 characters", async () => {
@@ -222,8 +223,14 @@ describe("shields snapshot", () => {
     expect(row.key).toBe(SHIELDS_SNAPSHOT_KEY);
     const payload = decode(row.bodyGzip);
     expect(payload.tipHeight).toBe(1000);
-    // Aggregates only: the fake chain's 2 recent unshields have no earlier matching deposit.
-    expect(payload.stats?.last24h).toMatchObject({ deposits: 1, withdrawals: 2, matched: 0 });
+    expect(payload.stats).toBeUndefined();
+    // Aggregates live in their own tiny row: the fake chain's 2 recent unshields have no earlier matching deposit.
+    const statsRow = await readSnapshot(STATS_SNAPSHOT_KEY);
+    const stats = JSON.parse(gunzipSync(statsRow.bodyGzip).toString("utf8")) as StatsPayload;
+    expect(stats).toMatchObject({ v: 1, tipHeight: 1000, windowDays: 30 });
+    expect(stats.stats.last24h).toMatchObject({ deposits: 1, withdrawals: 2, matched: 0, standOut: 0 });
+    expect(statsRow.etag).toBe(etagFor(gunzipSync(statsRow.bodyGzip)));
+    expect(statsRow.jsonBytes).toBeLessThan(1000);
     expect(payload.rows).toEqual([[0, 250_000_000, 1, "cccccccccccc"]]);
     const json = gunzipSync(row.bodyGzip);
     expect(json.toString()).not.toContain(full);

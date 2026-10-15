@@ -5,12 +5,14 @@
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { brotliCompress, constants, gzip } from "node:zlib";
-import { computeLinkStats, encodeShields, TXID_PREFIX_LENGTH, type FullShieldEvent, type Pool } from "@ail/core";
+import { computeLinkStats, encodeShields, TXID_PREFIX_LENGTH, type FullShieldEvent, type Pool, type StatsPayload } from "@ail/core";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { snapshots, turnstileEvents } from "./db/schema";
 import { getMeta, RETENTION_DAYS, type Db } from "./db/store";
 
 export const SHIELDS_SNAPSHOT_KEY = "shields-v1";
+/** Aggregate counts only, for the home page (GET /api/v1/stats). */
+export const STATS_SNAPSHOT_KEY = "stats-v1";
 /** Max-quality brotli is ~12% smaller than gzip here; it is skipped if it would hold the cycle up longer than this. */
 export const BROTLI_BUDGET_MS = 30_000;
 
@@ -22,7 +24,22 @@ export interface SnapshotInfo {
   jsonBytes: number;
   gzipBytes: number;
   brBytes: number | null;
+  /** Size of the stats-v1 row (gzip), written alongside. */
+  statsGzipBytes: number;
   ms: number;
+}
+
+/** Compresses one public payload and upserts it as a snapshot row. */
+async function storeSnapshot(
+  db: Db,
+  row: { key: string; generatedAt: Date; tipHeight: number | null; rowCount: number },
+  json: Buffer,
+  brotliBudgetMs: number,
+) {
+  const [bodyGzip, bodyBr] = await Promise.all([gz(json, { level: 9 }), brotliWithin(json, brotliBudgetMs)]);
+  const values = { ...row, etag: etagFor(json), jsonBytes: json.length, bodyGzip, bodyBr };
+  await db.insert(snapshots).values(values).onConflictDoUpdate({ target: snapshots.key, set: values });
+  return { gzipBytes: bodyGzip.length, brBytes: bodyBr?.length ?? null };
 }
 
 /** Weak ETag: the same tag covers the raw, gzip and brotli representations. */
@@ -75,29 +92,20 @@ export async function buildShieldsSnapshot(db: Db, now: Date, brotliBudgetMs = B
     now.getTime(),
   );
   const tip = await getMeta<number>(db, "tip_height");
-  const payload = encodeShields(events, {
-    generatedAt: now.toISOString(),
-    tipHeight: typeof tip === "number" ? tip : null,
-    windowDays: RETENTION_DAYS,
-    stats,
-  });
-  const json = Buffer.from(JSON.stringify(payload), "utf8");
-  const [bodyGzip, bodyBr] = await Promise.all([gz(json, { level: 9 }), brotliWithin(json, brotliBudgetMs)]);
-  const row = {
-    key: SHIELDS_SNAPSHOT_KEY,
-    generatedAt: now,
-    tipHeight: payload.tipHeight,
-    etag: etagFor(json),
-    rowCount: events.length,
-    jsonBytes: json.length,
-    bodyGzip,
-    bodyBr,
-  };
-  await db.insert(snapshots).values(row).onConflictDoUpdate({ target: snapshots.key, set: row });
-  return { rows: events.length, jsonBytes: json.length, gzipBytes: bodyGzip.length, brBytes: bodyBr?.length ?? null, ms: Date.now() - started };
+  const tipHeight = typeof tip === "number" ? tip : null;
+  const generatedAt = now.toISOString();
+
+  const json = Buffer.from(JSON.stringify(encodeShields(events, { generatedAt, tipHeight, windowDays: RETENTION_DAYS })), "utf8");
+  const shields = await storeSnapshot(db, { key: SHIELDS_SNAPSHOT_KEY, generatedAt: now, tipHeight, rowCount: events.length }, json, brotliBudgetMs);
+
+  const statsPayload: StatsPayload = { v: 1, generatedAt, tipHeight, windowDays: RETENTION_DAYS, stats };
+  const statsJson = Buffer.from(JSON.stringify(statsPayload), "utf8");
+  const statsRow = await storeSnapshot(db, { key: STATS_SNAPSHOT_KEY, generatedAt: now, tipHeight, rowCount: 1 }, statsJson, brotliBudgetMs);
+
+  return { rows: events.length, jsonBytes: json.length, ...shields, statsGzipBytes: statsRow.gzipBytes, ms: Date.now() - started };
 }
 
 export function formatSnapshot(s: SnapshotInfo): string {
   const kb = (n: number) => `${Math.round(n / 1024)} KB`;
-  return `snapshot ${s.rows} shields, ${kb(s.gzipBytes)} gzip${s.brBytes === null ? "" : `, ${kb(s.brBytes)} br`} in ${(s.ms / 1000).toFixed(1)}s`;
+  return `snapshot ${s.rows} shields, ${kb(s.gzipBytes)} gzip${s.brBytes === null ? "" : `, ${kb(s.brBytes)} br`}, stats ${s.statsGzipBytes} B, in ${(s.ms / 1000).toFixed(1)}s`;
 }
