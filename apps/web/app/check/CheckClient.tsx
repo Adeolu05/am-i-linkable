@@ -1,281 +1,339 @@
 "use client";
 
-// Downloads the recent deposits once, then checks amounts entirely in the browser
-// with packages/core. The typed amount is never sent anywhere.
+// "Before you move": everything below runs in the browser. The typed amount is
+// never sent anywhere; the only download is the public snapshot everyone gets.
 
 import {
   checkWithdrawal,
-  decodeShields,
+  crowdAround,
   describeAge,
   formatZec,
   parseZecToZat,
-  ShieldIndex,
+  pickCommonExample,
+  pickRiskyExample,
   type CheckResult,
   type Risk,
-  type ShieldsPayload,
+  type ShieldIndex,
 } from "@ail/core";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { requestCount, RequestsPanel } from "./RequestsPanel";
+import { useId, useRef, useState } from "react";
+import { CountUp } from "@/components/CountUp";
+import { ArrowRightIcon, ClockIcon, CrowdIcon, RiskIcon, SparkIcon, SplitIcon } from "@/components/icons";
+import { freshness, useShields } from "@/lib/useShields";
+import { CrowdPlot } from "./CrowdPlot";
+import { PrivacyReceipt, requestCount } from "./PrivacyReceipt";
+import { WaitChart } from "./WaitChart";
 
-type DataState =
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "ready"; index: ShieldIndex; generatedAt: string; tipHeight: number | null };
+type Shown = { result: CheckResult; amount: string; at: number; key: number };
 
-const RISK_STYLE: Record<Risk, { label: string; badge: string; ring: string; icon: string }> = {
-  high: { label: "High risk", badge: "bg-rose-500/20 text-rose-200 ring-rose-400/50", ring: "border-rose-400/40", icon: "▲" },
-  medium: { label: "Medium risk", badge: "bg-amber-500/20 text-amber-100 ring-amber-300/50", ring: "border-amber-300/40", icon: "◆" },
-  low: { label: "Low risk", badge: "bg-emerald-500/20 text-emerald-100 ring-emerald-300/50", ring: "border-emerald-300/40", icon: "●" },
+const RISK: Record<Risk, { label: string; text: string; tint: string; ring: string }> = {
+  high: { label: "High risk", text: "text-risk-high", tint: "from-risk-high/25", ring: "ring-risk-high/45" },
+  medium: { label: "Medium risk", text: "text-risk-medium", tint: "from-risk-medium/22", ring: "ring-risk-medium/45" },
+  low: { label: "Low risk", text: "text-risk-low", tint: "from-risk-low/20", ring: "ring-risk-low/45" },
 };
 
-const POOL_LABEL: Record<string, string> = { sprout: "Sprout", sapling: "Sapling", orchard: "Orchard", ironwood: "Ironwood" };
+const POOL: Record<string, string> = { sprout: "Sprout", sapling: "Sapling", orchard: "Orchard", ironwood: "Ironwood" };
+
+function verdict(r: Extract<CheckResult, { kind: "result" }>): string {
+  if (r.anonymitySet === 0) return "No recent deposit matches this amount.";
+  if (r.risk === "high") return "This withdrawal may be linkable to a recent deposit.";
+  if (r.risk === "medium") return "This withdrawal may be linkable, though the link is weaker.";
+  return "This withdrawal blends in with many recent deposits.";
+}
 
 export function CheckClient() {
-  const [data, setData] = useState<DataState>({ status: "loading" });
+  const data = useShields();
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<CheckResult | null>(null);
-  const [checked, setChecked] = useState<string>("");
+  const [shown, setShown] = useState<Shown | null>(null);
   const [checksRun, setChecksRun] = useState(0);
-  const [requestsAtLastCheck, setRequestsAtLastCheck] = useState<number | null>(null);
+  const [baseline, setBaseline] = useState<number | null>(null);
+  const [exampleNote, setExampleNote] = useState<string | null>(null);
   const inputId = useId();
   const errorId = useId();
   const resultRef = useRef<HTMLDivElement>(null);
+  const ready = data.status === "ready" ? data : null;
 
-  useEffect(() => {
-    let cancelled = false;
-    // Always revalidate: recent deposits matter most, so never check against a stale browser copy.
-    fetch("/api/v1/shields", { cache: "no-cache" })
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status));
-        return r.json() as Promise<ShieldsPayload>;
-      })
-      .then((p) => {
-        if (!cancelled) setData({ status: "ready", index: new ShieldIndex(decodeShields(p)), generatedAt: p.generatedAt, tipHeight: p.tipHeight });
-      })
-      .catch(() => {
-        if (!cancelled) setData({ status: "error" });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const run = (raw: string) => {
+  const run = (raw: string, note: string | null = null) => {
     const parsed = parseZecToZat(raw);
     if (!parsed.ok) {
       setError(parsed.error);
-      setResult(null);
+      setShown(null);
       return;
     }
-    if (data.status !== "ready") return;
+    if (!ready) return;
     setError(null);
     setInput(raw);
-    setChecked(formatZec(parsed.zat));
-    setResult(checkWithdrawal(parsed.zat, Date.now(), data.index));
+    setExampleNote(note);
+    const now = Date.now();
+    setShown({ result: checkWithdrawal(parsed.zat, now, ready.index), amount: formatZec(parsed.zat), at: now, key: now });
     setChecksRun((n) => n + 1);
-    setRequestsAtLastCheck(requestCount());
-    requestAnimationFrame(() => resultRef.current?.focus());
+    setBaseline(requestCount());
+    requestAnimationFrame(() => resultRef.current?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
-  const status = useMemo(() => {
-    if (data.status === "loading") return "Downloading recent deposits…";
-    if (data.status === "error") return "Recent deposits could not be loaded. Please try again later.";
-    const mins = Math.max(0, Math.round((Date.now() - Date.parse(data.generatedAt)) / 60_000));
-    const detail = [
-      data.tipHeight ? `up to block ${data.tipHeight.toLocaleString("en-US")}` : null,
-      `updated ${mins <= 1 ? "just now" : `${mins} minutes ago`}`,
-    ].filter(Boolean);
-    return `${data.index.size.toLocaleString("en-US")} deposits from the last 30 days loaded (${detail.join(", ")}).`;
-  }, [data]);
+  const tryExample = (kind: "risky" | "common") => {
+    if (!ready) return;
+    const now = Date.now();
+    const zat = kind === "risky" ? pickRiskyExample(ready.index, now) : pickCommonExample(ready.index, now);
+    if (zat === null) {
+      setExampleNote(kind === "risky" ? "No unique recent deposit to use as an example right now." : "No common amount found right now.");
+      return;
+    }
+    run(
+      formatZec(zat).replace(/,/g, ""),
+      kind === "risky"
+        ? "Example: a deposit from the last two days with a unique amount, minus a typical fee. Picked on your device."
+        : "Example: one of the most common deposit amounts this month. Picked on your device.",
+    );
+  };
+
+  const status =
+    data.status === "loading"
+      ? "Downloading recent deposits…"
+      : data.status === "error"
+        ? "Recent deposits could not be loaded. Please try again later."
+        : `${data.index.size.toLocaleString("en-US")} deposits from the last 30 days loaded (${[
+            data.tipHeight ? `up to block ${data.tipHeight.toLocaleString("en-US")}` : null,
+            freshness(data.generatedAt),
+          ]
+            .filter(Boolean)
+            .join(", ")}).`;
 
   return (
-    <div className="space-y-6">
-      <form
-        className="glass space-y-4 p-5 sm:p-6"
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault();
-          run(input);
-        }}
-      >
-        <div className="space-y-2">
-          <label htmlFor={inputId} className="block font-medium">
-            Amount you plan to withdraw (ZEC)
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      <div className="min-w-0 space-y-6">
+        <form
+          className="glass space-y-4 p-5 sm:p-6"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(input);
+          }}
+        >
+          <label htmlFor={inputId} className="block font-display text-lg font-semibold">
+            Amount you plan to withdraw
           </label>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              id={inputId}
-              inputMode="decimal"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="e.g. 2.5"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              aria-invalid={error ? true : undefined}
-              aria-describedby={error ? errorId : undefined}
-              className="min-h-12 flex-1 rounded-xl border border-white/20 bg-white/10 px-4 font-mono text-lg text-white placeholder:text-white/40 focus:border-amber-300/70"
-            />
+            <div className="relative flex-1">
+              <input
+                id={inputId}
+                inputMode="decimal"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="e.g. 2.5"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? errorId : undefined}
+                className="min-h-14 w-full rounded-2xl border border-white/20 bg-night/40 pl-4 pr-16 font-mono text-xl text-ink placeholder:text-ink-faint focus:border-gold/70"
+              />
+              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 font-semibold text-ink-faint">ZEC</span>
+            </div>
             <button
               type="submit"
-              disabled={data.status !== "ready"}
-              className="min-h-12 rounded-xl bg-amber-300 px-6 font-semibold text-slate-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!ready}
+              className="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-gold px-7 text-lg font-semibold text-night shadow-glow-gold transition hover:bg-gold-bright disabled:cursor-not-allowed disabled:opacity-50"
             >
               Check
+              <ArrowRightIcon className="h-5 w-5" />
             </button>
           </div>
           {error && (
-            <p id={errorId} className="text-sm text-rose-200">
+            <p id={errorId} className="text-sm text-risk-high">
               {error}
             </p>
           )}
-        </div>
-        <p className="text-sm text-(--ink-muted)" role="status">
-          {status}
-        </p>
-      </form>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => tryExample("risky")}
+              disabled={!ready}
+              className="inline-flex items-center gap-2 rounded-full border border-risk-high/40 bg-risk-high/10 px-3.5 py-2 text-sm font-medium text-ink transition hover:bg-risk-high/20 disabled:opacity-50"
+            >
+              <SparkIcon className="h-4 w-4 text-risk-high" />
+              Try a risky example
+            </button>
+            <button
+              type="button"
+              onClick={() => tryExample("common")}
+              disabled={!ready}
+              className="inline-flex items-center gap-2 rounded-full border border-risk-low/40 bg-risk-low/10 px-3.5 py-2 text-sm font-medium text-ink transition hover:bg-risk-low/20 disabled:opacity-50"
+            >
+              <CrowdIcon className="h-4 w-4 text-risk-low" />
+              Try a common amount
+            </button>
+          </div>
+          <p className="text-sm text-ink-faint" role="status">
+            {status}
+          </p>
+        </form>
 
-      <div ref={resultRef} tabIndex={-1} aria-live="polite" aria-atomic="true" className="outline-none">
-        {result && <ResultCard result={result} amount={checked} onTry={(zat) => run(formatZec(zat).replace(/,/g, ""))} />}
+        <div ref={resultRef} tabIndex={-1} aria-live="polite" className="scroll-mt-6 outline-none">
+          {shown && ready && <Result key={shown.key} shown={shown} index={ready.index} note={exampleNote} onTry={(z) => run(formatZec(z).replace(/,/g, ""))} />}
+        </div>
       </div>
 
-      <RequestsPanel checksRun={checksRun} requestsAtLastCheck={requestsAtLastCheck} />
+      <aside className="space-y-6 lg:sticky lg:top-6">
+        <PrivacyReceipt checksRun={checksRun} baseline={baseline} />
+      </aside>
     </div>
   );
 }
 
-function ResultCard({ result, amount, onTry }: { result: CheckResult; amount: string; onTry: (zat: number) => void }) {
+function Result({
+  shown,
+  index,
+  note,
+  onTry,
+}: {
+  shown: Shown;
+  index: ShieldIndex;
+  note: string | null;
+  onTry: (zat: number) => void;
+}) {
+  const { result, amount } = shown;
   if (result.kind !== "result") {
     return (
-      <section className="glass p-5 sm:p-6" aria-label="Result">
-        <h2 className="text-lg font-semibold">{amount} ZEC</h2>
-        <p className="mt-2 text-(--ink-muted)">{result.message}</p>
+      <section className="glass animate-rise p-6" aria-label="Result">
+        <h2 className="font-display text-2xl font-semibold">{amount} ZEC</h2>
+        <p className="mt-2 text-ink-muted">{result.message}</p>
       </section>
     );
   }
-  const style = RISK_STYLE[result.risk];
+  const style = RISK[result.risk];
+  const newestAge = result.matches[0]?.ageMs ?? null;
+  const crowd = crowdAround(index, result.amountZat, shown.at);
   const { wait, commonAmounts, split } = result.suggestions;
+  const firstBetter = wait?.find((w) => w.risk !== result.risk);
+
   return (
-    <section className={`glass space-y-5 border p-5 sm:p-6 ${style.ring}`} aria-label="Result">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold ring-1 ${style.badge}`}>
-          <span aria-hidden="true">{style.icon}</span>
-          {style.label}
-        </span>
-        <h2 className="text-lg font-semibold">Withdrawing {amount} ZEC</h2>
-      </div>
+    <div className="space-y-6" aria-label="Result">
+      {note && <p className="animate-fade text-sm text-ink-muted">{note}</p>}
 
-      <ul className="space-y-1.5 leading-relaxed">
-        {result.reasons.map((r) => (
-          <li key={r}>{r}</li>
-        ))}
-      </ul>
+      <section className={`glass animate-rise overflow-hidden ring-1 ${style.ring}`}>
+        <div className={`bg-gradient-to-br ${style.tint} to-transparent p-6 sm:p-7`}>
+          <div className="flex items-start gap-4">
+            <RiskIcon level={result.risk} className={`h-12 w-12 shrink-0 ${style.text}`} />
+            <div className="min-w-0">
+              <p className={`font-display text-sm font-bold uppercase tracking-[0.14em] ${style.text}`}>{style.label}</p>
+              <h2 className="mt-1 font-display text-2xl font-bold leading-tight sm:text-3xl">{verdict(result)}</h2>
+              <p className="mt-2 text-ink-muted">
+                Withdrawing <span className="font-mono font-semibold text-ink">{amount} ZEC</span>
+              </p>
+            </div>
+          </div>
+          <dl className="mt-5 grid grid-cols-3 gap-3">
+            <div className="tile p-3">
+              <dt className="text-xs text-ink-faint">Matching deposits</dt>
+              <dd className="mt-1 font-display text-2xl font-bold">
+                <CountUp value={result.anonymitySet} />
+              </dd>
+            </div>
+            <div className="tile p-3">
+              <dt className="text-xs text-ink-faint">Exact amount</dt>
+              <dd className="mt-1 font-display text-2xl font-bold">
+                <CountUp value={result.exactCount} />
+              </dd>
+            </div>
+            <div className="tile p-3">
+              <dt className="text-xs text-ink-faint">Newest match</dt>
+              <dd className="mt-1 font-display text-lg font-bold leading-8">{newestAge === null ? "none" : `${describeAge(newestAge)} ago`}</dd>
+            </div>
+          </dl>
+        </div>
+        <ul className="space-y-1.5 border-t border-white/10 px-6 py-5 leading-relaxed sm:px-7">
+          {result.reasons.map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+      </section>
 
-      <p className="text-sm text-(--ink-muted)">
-        Matching deposits in the last 30 days: <strong className="text-white">{result.anonymitySet}</strong>
-        {result.exactCount > 0 && <> ({result.exactCount} exact)</>}.
-      </p>
+      <CrowdPlot crowd={crowd} amountZat={result.amountZat} risk={result.risk} />
+
+      {result.risk !== "low" && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <WaitChart anonymitySet={result.anonymitySet} newestAgeMs={newestAge} />
+          <section className="glass animate-rise space-y-3 p-5 sm:p-6" aria-labelledby="todo">
+            <h3 id="todo" className="font-display text-xl font-semibold">
+              What you could do
+            </h3>
+            {firstBetter && (
+              <div className="tile flex items-start gap-3 p-4">
+                <ClockIcon className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
+                <div>
+                  <p className="font-semibold">
+                    Wait {firstBetter.afterDays} day{firstBetter.afterDays === 1 ? "" : "s"}
+                  </p>
+                  <p className="text-sm text-ink-muted">Risk drops to {firstBetter.risk} for this amount.</p>
+                </div>
+              </div>
+            )}
+            {commonAmounts?.slice(0, 2).map((c) => (
+              <button
+                key={c.amountZat}
+                type="button"
+                onClick={() => onTry(c.amountZat)}
+                className="tile flex w-full items-start gap-3 p-4 text-left transition hover:border-gold/50 hover:bg-white/10"
+              >
+                <CrowdIcon className="mt-0.5 h-5 w-5 shrink-0 text-risk-low" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold">
+                    Use <span className="font-mono">{formatZec(c.amountZat)}</span> ZEC instead
+                  </span>
+                  <span className="block text-sm text-ink-muted">
+                    {c.anonymitySet.toLocaleString("en-US")} others did. Leave the rest shielded.
+                  </span>
+                </span>
+                <ArrowRightIcon className="mt-0.5 h-5 w-5 shrink-0 text-ink-faint" />
+              </button>
+            ))}
+            {split && (
+              <div className="tile flex items-start gap-3 p-4">
+                <SplitIcon className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
+                <div>
+                  <p className="font-semibold">
+                    Split into {split.map((s) => formatZec(s.amountZat)).join(" + ")} ZEC
+                  </p>
+                  <p className="text-sm text-ink-muted">Send the parts hours or days apart, to different addresses.</p>
+                </div>
+              </div>
+            )}
+            {!firstBetter && !commonAmounts && !split && <p className="text-sm text-ink-muted">No simple alternative found in the data.</p>}
+          </section>
+        </div>
+      )}
 
       {result.matches.length > 0 && result.risk !== "low" && (
-        <div className="space-y-2">
-          <h3 className="font-semibold">Matching deposits</h3>
-          {/* relative: keeps the visually hidden caption inside the scroll area on narrow screens */}
-          <div className="relative overflow-x-auto">
-            <table className="w-full min-w-[32rem] text-left text-sm">
-              <caption className="sr-only">Recent deposits that match this amount</caption>
-              <thead className="text-(--ink-muted)">
-                <tr>
-                  <th scope="col" className="py-1.5 pr-3 font-medium">When</th>
-                  <th scope="col" className="py-1.5 pr-3 font-medium">Amount (ZEC)</th>
-                  <th scope="col" className="py-1.5 pr-3 font-medium">Pool</th>
-                  <th scope="col" className="py-1.5 font-medium">Transaction ID (start)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {result.matches.map((m, i) => (
-                  <tr key={`${m.txidPrefix}-${i}`}>
-                    <td className="py-2 pr-3">
-                      <time dateTime={new Date(m.time).toISOString()} title={new Date(m.time).toUTCString()}>
-                        {describeAge(m.ageMs)} ago
-                      </time>
-                    </td>
-                    <td className="py-2 pr-3 font-mono">
-                      {formatZec(m.amountZat)}
-                      {m.kind === "near" && <span className="ml-1 text-xs text-(--ink-muted)">(+{formatZec(m.differenceZat)})</span>}
-                    </td>
-                    <td className="py-2 pr-3">{POOL_LABEL[m.pool] ?? m.pool}</td>
-                    <td className="py-2 font-mono text-xs">{m.txidPrefix}…</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs leading-relaxed text-(--ink-muted)">
-            We don&rsquo;t link to block explorers: opening one would tell that site which transaction you&rsquo;re
-            interested in. Compare this ID with the one in your wallet.
+        <section className="glass animate-rise p-5 sm:p-6" aria-labelledby="matches">
+          <h3 id="matches" className="font-display text-xl font-semibold">
+            Matching deposits
+          </h3>
+          <ul className="mt-4 divide-y divide-white/10">
+            {result.matches.map((m, i) => (
+              <li key={`${m.txidPrefix}-${i}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-1 py-3 text-sm sm:grid-cols-[1fr_1.4fr_0.8fr_1.2fr] sm:items-center">
+                <span className="text-ink-muted">
+                  <time dateTime={new Date(m.time).toISOString()} title={new Date(m.time).toUTCString()}>
+                    {describeAge(m.ageMs)} ago
+                  </time>
+                </span>
+                <span className="min-w-0 text-right font-mono sm:text-left">
+                  {formatZec(m.amountZat)}
+                  {m.kind === "near" && <span className="block text-xs text-ink-faint sm:ml-1 sm:inline">(+{formatZec(m.differenceZat)})</span>}
+                </span>
+                <span>{POOL[m.pool] ?? m.pool}</span>
+                <span className="min-w-0 break-all text-right font-mono text-xs text-ink-muted sm:text-left">{m.txidPrefix}…</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs leading-relaxed text-ink-faint">
+            Transaction IDs show their first 12 characters. We don&rsquo;t link to block explorers: opening one would
+            tell that site which transaction you&rsquo;re interested in. Compare this ID with the one in your wallet.
           </p>
-        </div>
+        </section>
       )}
 
-      {(wait || commonAmounts || split) && (
-        <div className="space-y-4 rounded-2xl bg-white/5 p-4">
-          <h3 className="font-semibold">What you could do</h3>
-          {wait && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Wait</p>
-              <ul className="flex flex-wrap gap-2 text-sm">
-                {wait.map((w) => (
-                  <li key={w.afterDays} className={`rounded-full px-3 py-1 ring-1 ${RISK_STYLE[w.risk].badge}`}>
-                    in {w.afterDays} day{w.afterDays === 1 ? "" : "s"}: {w.risk}
-                  </li>
-                ))}
-              </ul>
-              <p className="text-xs text-(--ink-muted)">
-                Waiting weakens timing links. Anyone who keeps full history can still match a unique amount.
-              </p>
-            </div>
-          )}
-          {commonAmounts && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Use a common amount instead</p>
-              <ul className="flex flex-wrap gap-2">
-                {commonAmounts.map((c) => (
-                  <li key={c.amountZat}>
-                    <button
-                      type="button"
-                      onClick={() => onTry(c.amountZat)}
-                      className="rounded-full bg-white/10 px-3 py-1.5 text-sm ring-1 ring-white/20 hover:bg-white/15"
-                    >
-                      <span className="font-mono">{formatZec(c.amountZat)}</span> ZEC · blends with {c.anonymitySet}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <p className="text-xs text-(--ink-muted)">Leave the rest shielded. Select an amount to check it.</p>
-            </div>
-          )}
-          {split && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Split it</p>
-              <p className="text-sm">
-                Withdraw{" "}
-                {split.map((s, i) => (
-                  <span key={`${s.amountZat}-${i}`}>
-                    {i > 0 && (i === split.length - 1 ? " and " : ", ")}
-                    <span className="font-mono">{formatZec(s.amountZat)}</span>
-                  </span>
-                ))}{" "}
-                ZEC separately.
-              </p>
-              <p className="text-xs text-(--ink-muted)">
-                Send the parts hours or days apart, to different addresses. Parts sent together can be added back up.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      <p className="text-xs leading-relaxed text-(--ink-muted)">{result.caveat}</p>
-    </section>
+      <p className="text-xs leading-relaxed text-ink-faint">{result.caveat}</p>
+    </div>
   );
 }
