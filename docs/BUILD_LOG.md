@@ -258,3 +258,30 @@ Two `start --once` cycles after the backfill:
 - **Re-verified in the browser:** only same-origin requests (the page, its
   static assets, `/api/v1/shields`); three checks added 0 requests. High,
   medium and low examples unchanged.
+
+## 2026-10-16: Design upgrade ("Glassmorphism 2.0")
+
+- **Design system:** tokens in one `@theme` block in `apps/web/app/globals.css`
+  (colours, Zcash gold `#F4B728`, risk colours, radii, blur, shadows, motion).
+  Frosted glass over a slowly drifting gradient scene (navy, teal, a hint of
+  gold), with a solid fallback without `backdrop-filter` or with reduced
+  transparency. Bricolage Grotesque for display, Inter for body, JetBrains Mono
+  for amounts; all self-hosted via next/font, tabular numbers. Motion stops
+  under `prefers-reduced-motion`.
+- **Home:** hero with one call to action, a live proof strip, 3 steps, the
+  privacy promise and "Have I been linked?" (coming soon).
+- **Proof strip data:** the collector adds aggregate counts only (`stats`) to
+  the shields snapshot (`computeLinkStats` in core, same matching rule as the
+  checker). At build time: in the last 24 h, 821 of 939 withdrawals matched an
+  earlier deposit's amount, and 86 stood out (1–2 possible deposits). Over 30
+  days: 37,629 of 43,230 matched.
+- **Check page:** colour-coded result header (icon + word + verdict), "The
+  crowd" SVG dot plot with a text summary, a "wait" mini-chart (now, +1, +3, +7
+  days), action cards, a tidier matches list (12-character prefixes, plain
+  text), "Try a risky example" and "Try a common amount" (picked on the
+  device), and a prominent privacy receipt.
+- **Verified with headless Chrome (DevTools protocol, network log):** at 375,
+  768 and 1440 px, no horizontal scroll; every request went to the site's own
+  origin (page, static assets, `/api/v1/shields`); clicking an example (a
+  check) added 0 requests. JS: about 183 KB gzip on /check, mostly
+  React/Next; no chart libraries.
