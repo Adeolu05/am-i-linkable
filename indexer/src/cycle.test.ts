@@ -222,6 +222,8 @@ describe("shields snapshot", () => {
     expect(row.key).toBe(SHIELDS_SNAPSHOT_KEY);
     const payload = decode(row.bodyGzip);
     expect(payload.tipHeight).toBe(1000);
+    // Aggregates only: the fake chain's 2 recent unshields have no earlier matching deposit.
+    expect(payload.stats?.last24h).toMatchObject({ deposits: 1, withdrawals: 2, matched: 0 });
     expect(payload.rows).toEqual([[0, 250_000_000, 1, "cccccccccccc"]]);
     const json = gunzipSync(row.bodyGzip);
     expect(json.toString()).not.toContain(full);

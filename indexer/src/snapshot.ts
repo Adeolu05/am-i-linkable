@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { brotliCompress, constants, gzip } from "node:zlib";
-import { encodeShields, TXID_PREFIX_LENGTH, type FullShieldEvent, type Pool } from "@ail/core";
+import { computeLinkStats, encodeShields, TXID_PREFIX_LENGTH, type FullShieldEvent, type Pool } from "@ail/core";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { snapshots, turnstileEvents } from "./db/schema";
 import { getMeta, RETENTION_DAYS, type Db } from "./db/store";
@@ -64,11 +64,22 @@ export async function buildShieldsSnapshot(db: Db, now: Date, brotliBudgetMs = B
     pool: r.pool as Pool,
     txid: r.txidPrefix,
   }));
+  // Withdrawals only feed the aggregate counts; no withdrawal event is published.
+  const unshields = await db
+    .select({ t: sql<string>`extract(epoch from ${turnstileEvents.time})::bigint`, amountZat: turnstileEvents.amountZat })
+    .from(turnstileEvents)
+    .where(and(eq(turnstileEvents.direction, "unshield"), eq(turnstileEvents.isDust, false), gte(turnstileEvents.time, since)));
+  const stats = computeLinkStats(
+    events.map((e) => ({ time: e.time, amountZat: e.amountZat })),
+    unshields.map((u) => ({ time: Number(u.t) * 1000, amountZat: Number(u.amountZat) })),
+    now.getTime(),
+  );
   const tip = await getMeta<number>(db, "tip_height");
   const payload = encodeShields(events, {
     generatedAt: now.toISOString(),
     tipHeight: typeof tip === "number" ? tip : null,
     windowDays: RETENTION_DAYS,
+    stats,
   });
   const json = Buffer.from(JSON.stringify(payload), "utf8");
   const [bodyGzip, bodyBr] = await Promise.all([gz(json, { level: 9 }), brotliWithin(json, brotliBudgetMs)]);
