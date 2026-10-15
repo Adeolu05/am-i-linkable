@@ -74,3 +74,12 @@ export function computeLinkStats(deposits: TimedAmount[], withdrawals: TimedAmou
   }
   return out;
 }
+
+/** GET /api/v1/stats: the aggregate counts alone, so the home page needs no event data. */
+export interface StatsPayload {
+  v: 1;
+  generatedAt: string;
+  tipHeight: number | null;
+  windowDays: number;
+  stats: LinkStats;
+}
