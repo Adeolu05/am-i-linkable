@@ -9,6 +9,8 @@
 // of the payload, and 12 characters (48 bits) are plenty to compare against the
 // id shown in your own wallet.
 
+import type { LinkStats } from "./stats";
+
 export type Pool = "sprout" | "sapling" | "orchard" | "ironwood";
 
 export const TXID_PREFIX_LENGTH = 12;
@@ -22,6 +24,8 @@ export interface ShieldsPayload {
   baseTime: number;
   pools: Pool[];
   rows: [number, number, number, string][];
+  /** Aggregate counts only (no events), added by the collector for the home page. */
+  stats?: LinkStats;
 }
 
 export interface ShieldEvent {
@@ -47,7 +51,7 @@ export function decodeShields(p: ShieldsPayload): ShieldEvent[] {
 
 export function encodeShields(
   events: FullShieldEvent[],
-  meta: { generatedAt: string; tipHeight: number | null; windowDays: number },
+  meta: { generatedAt: string; tipHeight: number | null; windowDays: number; stats?: LinkStats },
 ): ShieldsPayload {
   const pools: Pool[] = ["sprout", "sapling", "orchard", "ironwood"];
   const sorted = [...events].sort((a, b) => a.time - b.time);

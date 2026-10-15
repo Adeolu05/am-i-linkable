@@ -4,3 +4,4 @@ export * from "./buckets";
 export * from "./zat";
 export * from "./shields";
 export * from "./match";
+export * from "./stats";
