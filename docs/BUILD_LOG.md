@@ -272,9 +272,11 @@ Two `start --once` cycles after the backfill:
   privacy promise and "Have I been linked?" (coming soon).
 - **Proof strip data:** the collector adds aggregate counts only (`stats`) to
   the shields snapshot (`computeLinkStats` in core, same matching rule as the
-  checker). At build time: in the last 24 h, 821 of 939 withdrawals matched an
-  earlier deposit's amount, and 86 stood out (1–2 possible deposits). Over 30
-  days: 37,629 of 43,230 matched.
+  checker). At build time, 86 of 939 withdrawals in the last 24 h stood out
+  (only 1–2 possible deposits; they may be linkable), while 600 blended into a
+  crowd of 10 or more. (A raw "matched any earlier deposit" count, 821, was
+  shown at first but overstates risk because it includes crowd matches; it was
+  replaced the same day, see below.)
 - **Check page:** colour-coded result header (icon + word + verdict), "The
   crowd" SVG dot plot with a text summary, a "wait" mini-chart (now, +1, +3, +7
   days), action cards, a tidier matches list (12-character prefixes, plain
@@ -285,3 +287,22 @@ Two `start --once` cycles after the backfill:
   origin (page, static assets, `/api/v1/shields`); clicking an example (a
   check) added 0 requests. JS: about 183 KB gzip on /check, mostly
   React/Next; no chart libraries.
+
+## 2026-10-16 (later): Honest headline, light home page
+
+- **Headline:** the home proof strip now leads with withdrawals that **stood
+  out** in the last 24 hours (only 1–2 earlier matching deposits; they may be
+  linkable): 86 of 938 at build time, with context that most blended into a
+  crowd (599 matched 10 or more deposits). The raw "matched any earlier
+  deposit" count is no longer shown as a headline because it includes crowd
+  matches and overstates risk.
+- **GET /api/v1/stats:** the collector writes the aggregate counts as their own
+  snapshot row (`stats-v1`, about 200 B gzip, 172 B brotli), served with the
+  same no-parameters, ETag/304 and cache pattern through a shared snapshot
+  handler. `web_readonly` reads it via its existing SELECT on `snapshots`
+  (create-web-role re-run and verified).
+- **Home page weight (cold load, headless Chrome):** 819 KB before, **285 KB**
+  after; its only data request is `/api/v1/stats` (~1 KB). `/check` still
+  loads `/api/v1/shields` (532 KB brotli).
+- Re-verified: same-origin only on every page and width; checks add 0
+  requests; no horizontal scroll at 375, 768 and 1440 px.

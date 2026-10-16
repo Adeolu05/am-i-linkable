@@ -109,3 +109,19 @@ common to match meaningfully."*
 
 A low result does not guarantee privacy. A high result means a public pattern
 exists, not that anyone has linked you.
+
+## Network stats (home page)
+
+`computeLinkStats` (packages/core) applies the same rule to every non-dust
+withdrawal in the last 30 days, counting earlier deposits in the fee band
+within the 30 days before it. Published at `GET /api/v1/stats` as counts only:
+
+- **stood out**: 1–2 earlier matching deposits. These may be linkable, and
+  this is the headline figure.
+- **blended in**: 10 or more matching deposits.
+- **matched**: at least one earlier matching deposit. This is kept in the data,
+  but it is not shown as a headline, because it includes withdrawals that
+  blended into large crowds and so overstates risk.
+
+Limits: deposits older than the 30-day window are not seen, so a withdrawal
+early in the window may look less matched than it is.
