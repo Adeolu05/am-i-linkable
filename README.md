@@ -96,6 +96,7 @@ Names only; put the values in `indexer/.env` locally (see
 | `THREEXPL_API_KEY` | backfill, start | 3xpl JSON API token. Optional (falls back to the rate-limited sandbox). |
 | `THREEXPL_DUMPS_KEY` | backfill | 3xpl dumps token. Optional (without it the backfill uses the JSON API only). |
 | `INTERVAL_MINUTES` | start | Minutes between cycles (default 10). |
+| `SNAPSHOT_MIN_MINUTES` | start | Minimum minutes between rebuilds of the public snapshots (default 30). |
 | `THREEXPL_MIN_INTERVAL_MS` | backfill, start | Minimum gap between 3xpl requests (default 1500 ms with a key, 2400 ms without). |
 
 ### Locally (PowerShell 7)
@@ -129,6 +130,35 @@ it holds no database connections, so Neon can scale to zero.
    SIGTERM during redeploys.
 
 To build the image yourself: `docker build -f indexer/Dockerfile -t am-i-linkable-indexer .`
+
+## Database egress (read this before running things locally)
+
+Neon's free plan meters data sent **out of** the database (5 GB a month).
+The production design keeps that small:
+
+- The collector loads the 30-day window into memory **once** at startup, then
+  updates it from the blocks it fetches from 3xpl. Snapshots are rebuilt from
+  memory (no database reads) at most every `SNAPSHOT_MIN_MINUTES`, and only
+  when something changed. The bucket plan comes back as per-prefix counts, not
+  hashes, and writes use no `RETURNING`.
+- Each web server instance checks a snapshot's ETag at most every 5 minutes
+  and downloads a body only when the ETag changes, in one encoding.
+
+**Local runs against the production database count toward the same quota.**
+A collector start reads about 4–5 MB (the one-off window load); a backfill or
+a full snapshot rebuild reads more. Avoid running them casually.
+
+**Design work without the database:** save the current snapshots once, then
+start the web app in fixture mode. It serves the saved files and never
+contacts Neon.
+
+```powershell
+pnpm --filter indexer export-fixtures      # one small read (~0.6 MB) into data/fixtures/
+$env:SNAPSHOT_FIXTURES_DIR = "../../data/fixtures"
+pnpm dev
+```
+
+`SNAPSHOT_FIXTURES_DIR` is resolved from `apps/web`. Leave it unset in production.
 
 ## Website database role (read-only)
 
