@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Do not let `next dev` write tooling instruction files into the repo.
+  agentRules: false,
   // packages/core ships TypeScript source.
   transpilePackages: ["@ail/core"],
   // Keep pg as a plain Node dependency on the server.
