@@ -16,7 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "create-web-role": "tsx src/create-web-role.ts"
+    "create-web-role": "tsx src/create-web-role.ts",
+    "export-fixtures": "tsx src/export-fixtures.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.9",
