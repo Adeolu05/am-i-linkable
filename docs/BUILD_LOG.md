@@ -306,3 +306,54 @@ Two `start --once` cycles after the backfill:
   loads `/api/v1/shields` (532 KB brotli).
 - Re-verified: same-origin only on every page and width; checks add 0
   requests; no horizontal scroll at 375, 768 and 1440 px.
+
+## 2026-10-18: Cutting database egress
+
+Neon's free plan reported 4 GB of its 5 GB monthly egress used in about 5
+days. Estimates below use the Postgres wire format (text rows) and the known
+row counts (~44k non-dust shields, ~43k unshields, ~53.5k distinct addresses
+in the window). No heavy queries were run to measure.
+
+**Before, per collector cycle (~8.3 MB):**
+
+| Query | Egress |
+|---|---:|
+| Bucket plan: every distinct address hash (`encode(address_hash)`) | ~4.0 MB |
+| Snapshot rebuild: all window shields | ~2.8 MB |
+| Stats: all window unshields | ~1.5 MB |
+| RETURNING on inserts, reorg check, meta, window stats | ~10 KB |
+
+At 10-minute cycles that is **~1.2 GB/day** (0.4 GB/day at 30 minutes). Web:
+each active instance re-downloaded the 0.55 MB shields body after every
+snapshot change (up to 144 a day) plus an ETag check every minute.
+
+**After:**
+
+- The collector loads the window into memory once at startup (~5 MB) and then
+  updates it from the blocks it fetches from 3xpl; reorg rollbacks drop the
+  affected heights from memory, and any error forces a full reload next cycle.
+  Snapshots are rebuilt from memory (zero reads) only when something changed
+  and at most every `SNAPSHOT_MIN_MINUTES` (default 30).
+- The bucket plan comes back as per-12-bit-prefix counts (≤ 4,096 rows,
+  ~90 KB) and is recomputed only with a snapshot rebuild; writes use no
+  `RETURNING`.
+- Web: each instance checks the ETag at most every 5 minutes and downloads one
+  body per ETag change, in one encoding (other encodings are made locally).
+  Unit tests count the queries and downloads.
+- Local design work can use fixture mode (`SNAPSHOT_FIXTURES_DIR`) with no
+  database at all.
+
+| | Before | After |
+|---|---:|---:|
+| Collector, per cycle | ~8.3 MB | ~5 KB |
+| Collector, per snapshot rebuild | (every cycle) | ~95 KB (≤ 48/day) |
+| Collector, per day | ~1.2 GB (10-min) / ~0.4 GB (30-min) | **~5 MB** (plus ~5 MB per restart) |
+| Web, per active instance per day (worst case) | up to ~80 MB + 1,440 checks | ≤ ~26 MB + ≤ 288 checks |
+
+Tests: the in-memory window equals a full database rebuild after several
+cycles, after a prune and after a reorg; snapshots are skipped when unchanged
+or not yet due.
+
+Also: Next 16's `next dev` wrote an AGENTS.md file into apps/web; it was
+removed and disabled with `agentRules: false` so tooling instruction files
+never enter the repo.
