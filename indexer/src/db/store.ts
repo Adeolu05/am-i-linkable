@@ -1,7 +1,7 @@
 // Database operations shared by the backfill and the collector. Works with any
 // Drizzle Postgres database (node-postgres in production, PGlite in tests).
 
-import { DEFAULT_MIN_BUCKET_SIZE, planBuckets, type BucketPlan } from "@ail/core";
+import { DEFAULT_MIN_BUCKET_SIZE, planBucketsFromCounts, type BucketPlan } from "@ail/core";
 import { count, desc, eq, gte, lt, max, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { BlockRows } from "../ingest";
@@ -27,6 +27,15 @@ export interface WriteResult {
   migrations: number;
 }
 
+/**
+ * Affected-row count without RETURNING, so writes send nothing back over the network
+ * (node-postgres reports rowCount; PGlite, used in tests, reports affectedRows).
+ */
+function affected(r: unknown): number {
+  const x = r as { rowCount?: number | null; affectedRows?: number };
+  return x.rowCount ?? x.affectedRows ?? 0;
+}
+
 /** Idempotent: rows already present are left untouched (a known block's missing hash is filled in). */
 export async function writeBlocks(db: Db, batch: BlockRows[]): Promise<WriteResult> {
   const result: WriteResult = { blocks: 0, events: 0, addresses: 0, migrations: 0 };
@@ -40,21 +49,17 @@ export async function writeBlocks(db: Db, batch: BlockRows[]): Promise<WriteResu
         set: { hash: sql`coalesce(excluded.hash, ${indexedBlocks.hash})` },
         // Only touch rows that actually gain a hash; otherwise it is a no-op.
         setWhere: sql`${indexedBlocks.hash} is null and excluded.hash is not null`,
-      })
-      .returning({ height: indexedBlocks.height });
-    result.blocks += r.length;
+      });
+    result.blocks += affected(r);
   }
   for (const part of chunks(batch.flatMap((b) => b.events))) {
-    const r = await db.insert(turnstileEvents).values(part).onConflictDoNothing().returning({ txid: turnstileEvents.txid });
-    result.events += r.length;
+    result.events += affected(await db.insert(turnstileEvents).values(part).onConflictDoNothing());
   }
   for (const part of chunks(batch.flatMap((b) => b.addresses))) {
-    const r = await db.insert(eventAddresses).values(part).onConflictDoNothing().returning({ txid: eventAddresses.txid });
-    result.addresses += r.length;
+    result.addresses += affected(await db.insert(eventAddresses).values(part).onConflictDoNothing());
   }
   for (const part of chunks(batch.flatMap((b) => b.migrations))) {
-    const r = await db.insert(poolMigrations).values(part).onConflictDoNothing().returning({ txid: poolMigrations.txid });
-    result.migrations += r.length;
+    result.migrations += affected(await db.insert(poolMigrations).values(part).onConflictDoNothing());
   }
   return result;
 }
@@ -74,8 +79,7 @@ export async function lastBlocks(db: Db, n: number): Promise<{ height: number; h
 
 /** Removes a block range and, through cascades, every event and migration in it. */
 export async function deleteFromHeight(db: Db, height: number): Promise<number> {
-  const r = await db.delete(indexedBlocks).where(gte(indexedBlocks.height, height)).returning({ h: indexedBlocks.height });
-  return r.length;
+  return affected(await db.delete(indexedBlocks).where(gte(indexedBlocks.height, height)));
 }
 
 export async function setBlockHash(db: Db, height: number, hash: string): Promise<void> {
@@ -84,8 +88,7 @@ export async function setBlockHash(db: Db, height: number, hash: string): Promis
 
 /** Drops blocks (and their events) older than the retention window. */
 export async function pruneBefore(db: Db, cutoff: Date): Promise<number> {
-  const r = await db.delete(indexedBlocks).where(lt(indexedBlocks.time, cutoff)).returning({ h: indexedBlocks.height });
-  return r.length;
+  return affected(await db.delete(indexedBlocks).where(lt(indexedBlocks.time, cutoff)));
 }
 
 export async function getMeta<T>(db: Db, key: string): Promise<T | undefined> {
@@ -221,25 +224,46 @@ export async function computeStats(db: Db, now: Date): Promise<Stats> {
   };
 }
 
-/** Bucket plan over every distinct transparent address currently stored. */
+/** Prefix length of the per-bucket counts the database sends (4,096 rows at most). */
+const BUCKET_COUNT_BITS = 12;
+
+/**
+ * Bucket plan over every distinct transparent address currently stored. The
+ * database counts addresses per 12-bit hash prefix and sends only those counts
+ * (a few KB), not the hashes themselves (~4 MB).
+ */
 export async function computeBucketPlan(db: Db): Promise<BucketPlan> {
+  const prefix = sql<number>`(get_byte(${eventAddresses.addressHash}, 0) << 4) | (get_byte(${eventAddresses.addressHash}, 1) >> 4)`;
   const rows = await db
-    .selectDistinct({ h: sql<string>`encode(${eventAddresses.addressHash}, 'hex')` })
+    .select({ p: prefix.mapWith(Number), n: sql<number>`count(distinct ${eventAddresses.addressHash})`.mapWith(Number) })
     .from(eventAddresses)
-    .where(eq(eventAddresses.addressType, "transparent"));
-  return planBuckets(
-    rows.map((r) => r.h),
-    DEFAULT_MIN_BUCKET_SIZE,
-  );
+    .where(eq(eventAddresses.addressType, "transparent"))
+    .groupBy(prefix);
+  const counts = new Uint32Array(2 ** BUCKET_COUNT_BITS);
+  for (const r of rows) counts[r.p] = r.n;
+  return planBucketsFromCounts(counts, BUCKET_COUNT_BITS, DEFAULT_MIN_BUCKET_SIZE);
 }
 
-/** Recomputes the published bucket plan and stats and stores them in meta. */
-export async function refreshMeta(db: Db, now: Date, tipHeight: number | null): Promise<{ plan: BucketPlan; stats: Stats }> {
+/** Cheap per-cycle bookkeeping (writes only). */
+export async function setRunMeta(db: Db, now: Date, tipHeight: number | null): Promise<void> {
+  if (tipHeight != null) await setMeta(db, "tip_height", tipHeight, now);
+  await setMeta(db, "last_run_at", now.toISOString(), now);
+}
+
+/**
+ * Recomputes the bucket plan and window stats (aggregates computed in the
+ * database; only a few KB come back). Run when snapshots are rebuilt, not every cycle.
+ */
+export async function refreshAggregates(db: Db, now: Date): Promise<{ plan: BucketPlan; stats: Stats }> {
   const plan = await computeBucketPlan(db);
   const stats = await computeStats(db, now);
   await setMeta(db, "bucket_plan", { ...plan, targetMinBucketSize: DEFAULT_MIN_BUCKET_SIZE }, now);
   await setMeta(db, "stats", stats, now);
-  if (tipHeight != null) await setMeta(db, "tip_height", tipHeight, now);
-  await setMeta(db, "last_run_at", now.toISOString(), now);
   return { plan, stats };
+}
+
+/** Both of the above, for one-off jobs such as the backfill. */
+export async function refreshMeta(db: Db, now: Date, tipHeight: number | null): Promise<{ plan: BucketPlan; stats: Stats }> {
+  await setRunMeta(db, now, tipHeight);
+  return refreshAggregates(db, now);
 }
