@@ -52,3 +52,15 @@ describe("planBuckets", () => {
     expect(planBuckets([...h, ...h], 1000).totalAddresses).toBe(1500);
   });
 });
+
+describe("planBucketsFromCounts", () => {
+  it("matches planBuckets on the same addresses", async () => {
+    const { planBucketsFromCounts } = await import("./index");
+    const hashes = Array.from({ length: 20_000 }, (_, i) => sha256(`addr-${i}`));
+    const base = 12;
+    const counts = new Uint32Array(2 ** base);
+    for (const h of hashes) counts[bucketIndex(h, base)]!++;
+    expect(planBucketsFromCounts(counts, base, 1000)).toEqual(planBuckets(hashes, 1000));
+    expect(planBucketsFromCounts(new Uint32Array(2 ** base), base, 1000)).toMatchObject({ bits: 0, totalAddresses: 0, meetsTarget: false });
+  });
+});

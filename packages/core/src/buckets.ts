@@ -74,3 +74,36 @@ export function planBuckets(hashesHex: Iterable<string>, minBucketSize = DEFAULT
     meetsTarget: sizes.min >= minBucketSize,
   };
 }
+
+/**
+ * Same plan as planBuckets, from per-prefix address counts instead of the hashes
+ * themselves (so a database can send a few thousand counts rather than every hash).
+ * `counts[i]` is the number of distinct addresses whose hash starts with the
+ * `baseBits`-bit prefix i.
+ */
+export function planBucketsFromCounts(counts: ArrayLike<number>, baseBits: number, minBucketSize = DEFAULT_MIN_BUCKET_SIZE): BucketPlan {
+  checkBits(baseBits);
+  if (counts.length !== 2 ** baseBits) throw new RangeError(`expected ${2 ** baseBits} counts`);
+  const at = (bits: number) => {
+    const sizes = new Uint32Array(2 ** bits);
+    for (let i = 0; i < counts.length; i++) sizes[i >>> (baseBits - bits)]! += counts[i]!;
+    let min = Infinity;
+    let max = 0;
+    for (const s of sizes) {
+      if (s < min) min = s;
+      if (s > max) max = s;
+    }
+    return { min, max };
+  };
+  let total = 0;
+  for (let i = 0; i < counts.length; i++) total += counts[i]!;
+  let bits = 0;
+  let sizes = at(0);
+  for (let b = 1; b <= baseBits && total >= minBucketSize * 2 ** b; b++) {
+    const next = at(b);
+    if (next.min < minBucketSize) break;
+    bits = b;
+    sizes = next;
+  }
+  return { bits, bucketCount: 2 ** bits, minBucketSize: sizes.min, maxBucketSize: sizes.max, totalAddresses: total, meetsTarget: sizes.min >= minBucketSize };
+}

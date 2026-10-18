@@ -54,7 +54,10 @@ export function encodeShields(
   meta: { generatedAt: string; tipHeight: number | null; windowDays: number; stats?: LinkStats },
 ): ShieldsPayload {
   const pools: Pool[] = ["sprout", "sapling", "orchard", "ironwood"];
-  const sorted = [...events].sort((a, b) => a.time - b.time);
+  // Fully deterministic order, so the same deposits always encode to the same bytes (and ETag).
+  const sorted = [...events].sort(
+    (a, b) => a.time - b.time || (a.txid < b.txid ? -1 : a.txid > b.txid ? 1 : 0) || a.amountZat - b.amountZat || a.pool.localeCompare(b.pool),
+  );
   const baseTime = sorted.length > 0 ? Math.floor(sorted[0]!.time / 1000) : 0;
   return {
     v: 1,
