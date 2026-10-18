@@ -1,14 +1,14 @@
-// Builds the public shields payload (GET /api/v1/shields) once per collector
-// cycle and stores it, compressed, in a single `snapshots` row. The website only
-// reads that row, so serving the page never scans events or compresses anything.
+// Writes the public payloads (GET /api/v1/shields, GET /api/v1/stats) as
+// compressed rows in the `snapshots` table. The website only reads those rows.
+// The collector builds them from its in-memory window (memory.ts), so a rebuild
+// costs no database reads.
 
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { brotliCompress, constants, gzip } from "node:zlib";
-import { computeLinkStats, encodeShields, TXID_PREFIX_LENGTH, type FullShieldEvent, type Pool, type StatsPayload } from "@ail/core";
-import { and, asc, eq, gte, sql } from "drizzle-orm";
-import { snapshots, turnstileEvents } from "./db/schema";
-import { getMeta, RETENTION_DAYS, type Db } from "./db/store";
+import { snapshots } from "./db/schema";
+import { getMeta, type Db } from "./db/store";
+import { WindowMemory } from "./memory";
 
 export const SHIELDS_SNAPSHOT_KEY = "shields-v1";
 /** Aggregate counts only, for the home page (GET /api/v1/stats). */
@@ -61,48 +61,26 @@ async function brotliWithin(json: Buffer, budgetMs: number): Promise<Buffer | nu
   }
 }
 
-export async function buildShieldsSnapshot(db: Db, now: Date, brotliBudgetMs = BROTLI_BUDGET_MS): Promise<SnapshotInfo> {
+/**
+ * Writes both public snapshot rows (shields-v1, stats-v1) from the in-memory
+ * window. Reads nothing from the database; the upserts send nothing back.
+ */
+export async function writeSnapshots(db: Db, memory: WindowMemory, now: Date, tipHeight: number | null, brotliBudgetMs = BROTLI_BUDGET_MS): Promise<SnapshotInfo> {
   const started = Date.now();
-  const since = new Date(now.getTime() - RETENTION_DAYS * 86_400_000);
-  const rows = await db
-    // Epoch seconds and only the txid prefix: full txids never need to leave the database.
-    .select({
-      t: sql<string>`extract(epoch from ${turnstileEvents.time})::bigint`,
-      amountZat: turnstileEvents.amountZat,
-      pool: turnstileEvents.pool,
-      txidPrefix: sql<string>`left(${turnstileEvents.txid}, ${TXID_PREFIX_LENGTH})`,
-    })
-    .from(turnstileEvents)
-    .where(and(eq(turnstileEvents.direction, "shield"), eq(turnstileEvents.isDust, false), gte(turnstileEvents.time, since)))
-    .orderBy(asc(turnstileEvents.time));
-  const events: FullShieldEvent[] = rows.map((r) => ({
-    time: Number(r.t) * 1000,
-    amountZat: Number(r.amountZat),
-    pool: r.pool as Pool,
-    txid: r.txidPrefix,
-  }));
-  // Withdrawals only feed the aggregate counts; no withdrawal event is published.
-  const unshields = await db
-    .select({ t: sql<string>`extract(epoch from ${turnstileEvents.time})::bigint`, amountZat: turnstileEvents.amountZat })
-    .from(turnstileEvents)
-    .where(and(eq(turnstileEvents.direction, "unshield"), eq(turnstileEvents.isDust, false), gte(turnstileEvents.time, since)));
-  const stats = computeLinkStats(
-    events.map((e) => ({ time: e.time, amountZat: e.amountZat })),
-    unshields.map((u) => ({ time: Number(u.t) * 1000, amountZat: Number(u.amountZat) })),
-    now.getTime(),
-  );
-  const tip = await getMeta<number>(db, "tip_height");
-  const tipHeight = typeof tip === "number" ? tip : null;
-  const generatedAt = now.toISOString();
-
-  const json = Buffer.from(JSON.stringify(encodeShields(events, { generatedAt, tipHeight, windowDays: RETENTION_DAYS })), "utf8");
-  const shields = await storeSnapshot(db, { key: SHIELDS_SNAPSHOT_KEY, generatedAt: now, tipHeight, rowCount: events.length }, json, brotliBudgetMs);
-
-  const statsPayload: StatsPayload = { v: 1, generatedAt, tipHeight, windowDays: RETENTION_DAYS, stats };
+  const { shields: shieldsPayload, stats: statsPayload, shieldCount } = memory.payloads(now, tipHeight);
+  const json = Buffer.from(JSON.stringify(shieldsPayload), "utf8");
+  const shields = await storeSnapshot(db, { key: SHIELDS_SNAPSHOT_KEY, generatedAt: now, tipHeight, rowCount: shieldCount }, json, brotliBudgetMs);
   const statsJson = Buffer.from(JSON.stringify(statsPayload), "utf8");
   const statsRow = await storeSnapshot(db, { key: STATS_SNAPSHOT_KEY, generatedAt: now, tipHeight, rowCount: 1 }, statsJson, brotliBudgetMs);
+  return { rows: shieldCount, jsonBytes: json.length, ...shields, statsGzipBytes: statsRow.gzipBytes, ms: Date.now() - started };
+}
 
-  return { rows: events.length, jsonBytes: json.length, ...shields, statsGzipBytes: statsRow.gzipBytes, ms: Date.now() - started };
+/** Full rebuild from the database (one bulk read). Used by the backfill and as the reference in tests. */
+export async function buildShieldsSnapshot(db: Db, now: Date, brotliBudgetMs = BROTLI_BUDGET_MS): Promise<SnapshotInfo> {
+  const memory = new WindowMemory();
+  await memory.load(db, now);
+  const tip = await getMeta<number>(db, "tip_height");
+  return writeSnapshots(db, memory, now, typeof tip === "number" ? tip : null, brotliBudgetMs);
 }
 
 export function formatSnapshot(s: SnapshotInfo): string {

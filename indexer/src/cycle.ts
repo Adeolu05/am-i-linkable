@@ -1,5 +1,7 @@
 // One collector cycle: verify recent hashes (reorg check), fetch new blocks,
-// and write everything in a single transaction.
+// and write everything in a single transaction. The public snapshots are
+// rebuilt from an in-memory window (memory.ts), not by re-reading the database,
+// and at most every snapshotMinMs, to keep database egress tiny.
 
 import type { DbHandle } from "./db/client";
 import {
@@ -8,15 +10,17 @@ import {
   lastBlocks,
   maxIndexedHeight,
   pruneBefore,
-  refreshMeta,
+  refreshAggregates,
   RETENTION_DAYS,
   setBlockHash,
   setMeta,
+  setRunMeta,
   writeBlocks,
 } from "./db/store";
 import { describeError } from "./env";
 import { blockToRows, type BlockRows, type SourceBlock } from "./ingest";
-import { buildShieldsSnapshot, formatSnapshot, type SnapshotInfo } from "./snapshot";
+import { WindowMemory } from "./memory";
+import { formatSnapshot, writeSnapshots, type SnapshotInfo } from "./snapshot";
 
 export interface BlockSource {
   tipHeight(): Promise<number>;
@@ -33,8 +37,15 @@ export interface CycleOptions {
   /** Upper bound on blocks fetched per cycle; the collector loops again immediately if it falls behind. */
   maxBlocksPerCycle?: number;
   pruneEveryMs?: number;
-  /** Rebuild the public shields snapshot after writing (default true). */
+  /** Rebuild the public snapshots after writing (default true). */
   snapshot?: boolean;
+  /**
+   * The collector's in-memory window, kept across cycles. Without one, a
+   * temporary window is loaded from the database (a full read) for this cycle.
+   */
+  memory?: WindowMemory;
+  /** Minimum time between snapshot rebuilds (default 30 minutes). */
+  snapshotMinMs?: number;
 }
 
 export interface CycleResult {
@@ -50,6 +61,8 @@ export interface CycleResult {
   behind: number;
   /** The rebuilt public payload, or null when skipped or failed. */
   snapshot: SnapshotInfo | null;
+  /** Why no snapshot was written this cycle (unchanged, or not due yet). */
+  snapshotSkipped: string | null;
   /** Log-safe reason the snapshot failed; the cycle's blocks are still committed. */
   snapshotError: string | null;
   durationMs: number;
@@ -108,19 +121,40 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
         pruned = await pruneBefore(t, new Date(now().getTime() - RETENTION_DAYS * DAY_MS));
         await setMeta(t, "last_prune_at", now().toISOString(), now());
       }
-      await refreshMeta(t, now(), tip);
+      await setRunMeta(t, now(), tip);
       return { written, pruned };
     });
 
-    // Rebuild the public payload from the committed data. A failure here is reported
-    // but does not undo the cycle; the previous snapshot keeps being served.
+    // Update the in-memory window from what was just committed, then rebuild the
+    // public snapshots if something changed and a rebuild is due. A failure here
+    // is reported but does not undo the cycle; the previous snapshot stays live.
     let snapshot: SnapshotInfo | null = null;
     let snapshotError: string | null = null;
+    let snapshotSkipped: string | null = null;
     if (opts.snapshot !== false) {
+      const memory = opts.memory ?? new WindowMemory();
       try {
-        snapshot = await buildShieldsSnapshot(db, now());
+        if (!memory.loaded) {
+          await memory.load(db, now());
+        } else {
+          if (reorgFrom !== null) memory.dropFrom(reorgFrom);
+          memory.applyBlocks(rows);
+        }
+        memory.prune(now().getTime());
+        const minMs = opts.snapshotMinMs ?? 30 * 60_000;
+        const due = memory.lastSnapshotAt === null || now().getTime() - memory.lastSnapshotAt >= minMs;
+        if (!memory.dirty) snapshotSkipped = "snapshot unchanged";
+        else if (!due) snapshotSkipped = `snapshot due in ${Math.ceil((minMs - (now().getTime() - memory.lastSnapshotAt!)) / 60_000)} min`;
+        else {
+          snapshot = await writeSnapshots(db, memory, now(), tip);
+          await refreshAggregates(db, now());
+          memory.dirty = false;
+          memory.lastSnapshotAt = now().getTime();
+        }
       } catch (err) {
         snapshotError = describeError(err);
+        // If in doubt, start again from the database next cycle.
+        memory.loaded = false;
       }
     }
 
@@ -135,6 +169,7 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
       pruned: result.pruned,
       behind: indexedHeight === null ? tip : Math.max(0, tip - indexedHeight),
       snapshot,
+      snapshotSkipped,
       snapshotError,
       durationMs: Date.now() - started,
     };
@@ -155,6 +190,7 @@ export function formatCycle(r: CycleResult): string {
   if (r.reorgFrom !== null) parts.push(`reorg from ${r.reorgFrom}`);
   if (r.pruned > 0) parts.push(`pruned ${r.pruned} blocks`);
   if (r.snapshot) parts.push(formatSnapshot(r.snapshot));
+  if (r.snapshotSkipped) parts.push(r.snapshotSkipped);
   if (r.snapshotError) parts.push(`snapshot failed: ${r.snapshotError}`);
   parts.push(`${(r.durationMs / 1000).toFixed(1)}s`);
   return `cycle: ${parts.join(", ")}`;
