@@ -1,9 +1,14 @@
 // Network-wide linkability stats for the home page "proof" strip.
 //
 // Computed by the collector from public events and shipped as aggregates only
-// (counts), inside the shields snapshot. Uses the same rule as checkWithdrawal:
-// a withdrawal of P matches a deposit X made *before* it when
-// 0 <= X - P <= FEE_BAND_ZAT, looking back over the 30-day window.
+// (counts). Uses the same rule as checkWithdrawal: a withdrawal of P matches a
+// deposit X made *before* it when 0 <= X - P <= FEE_BAND_ZAT.
+//
+// Fairness: we only hold the last WINDOW_DAYS (30) of deposits. A withdrawal
+// near the start of that window would have almost no earlier deposits to be
+// compared with, so it would "stand out" just because its history is missing.
+// Every withdrawal is therefore compared with a fixed lookback that lies fully
+// inside our data, and withdrawals without that full lookback are not counted.
 
 import { COMMON_SET_SIZE, FEE_BAND_ZAT, WINDOW_DAYS } from "./match";
 
@@ -13,23 +18,39 @@ export interface TimedAmount {
   amountZat: number;
 }
 
-export interface WindowLinkStats {
-  /** Non-dust deposits (shields) in the window. */
-  deposits: number;
-  /** Non-dust withdrawals (unshields) in the window. */
+interface Outcome {
+  /** Non-dust withdrawals (unshields) counted. */
   withdrawals: number;
-  /** Withdrawals with at least one earlier matching deposit. */
+  /** Withdrawals with at least one matching deposit in their lookback. */
   matched: number;
-  /** Withdrawals with only 1 or 2 earlier matching deposits: they stood out. */
+  /** Withdrawals with only 1 or 2 matching deposits in their lookback: they stood out. */
   standOut: number;
-  /** Withdrawals that blended into a crowd of COMMON_SET_SIZE or more deposits. */
+  /** Withdrawals with COMMON_SET_SIZE or more matching deposits: they blended in. */
   blendedIn: number;
+  /** Each withdrawal was compared with the deposits in the this-many days before it. */
+  lookbackDays: number;
 }
 
 export interface LinkStats {
-  last24h: WindowLinkStats;
-  last30d: WindowLinkStats;
+  /**
+   * Withdrawals in the last 24 hours, each compared with the HEADLINE_LOOKBACK_DAYS
+   * days before it (every one of them has that full history in our data).
+   */
+  last24h: Outcome & { deposits: number };
+  /**
+   * The fair long view: withdrawals from the last `periodDays` days (the ones with
+   * a full FAIR_LOOKBACK_DAYS of data before them), each compared with exactly
+   * the FAIR_LOOKBACK_DAYS days before it.
+   */
+  fair: Outcome & { periodDays: number };
+  /** Non-dust deposits in the data window. */
+  deposits30d: number;
 }
+
+/** 29: the longest lookback every withdrawal of the last 24 hours fully has. */
+export const HEADLINE_LOOKBACK_DAYS = WINDOW_DAYS - 1;
+/** Fixed lookback for the 30-day view. */
+export const FAIR_LOOKBACK_DAYS = 7;
 
 const DAY = 86_400_000;
 
@@ -44,40 +65,52 @@ function lowerBound(sorted: TimedAmount[], amount: number): number {
   return lo;
 }
 
-export function computeLinkStats(deposits: TimedAmount[], withdrawals: TimedAmount[], now: number): LinkStats {
-  const byAmount = [...deposits].sort((a, b) => a.amountZat - b.amountZat);
-  const lookback = WINDOW_DAYS * DAY;
-  const empty = (): WindowLinkStats => ({ deposits: 0, withdrawals: 0, matched: 0, standOut: 0, blendedIn: 0 });
-  const out: LinkStats = { last24h: empty(), last30d: empty() };
-
-  for (const d of deposits) {
-    if (d.time > now) continue;
-    if (now - d.time <= lookback) out.last30d.deposits++;
-    if (now - d.time <= DAY) out.last24h.deposits++;
+/** Matching deposits made in the `lookbackMs` before the withdrawal. */
+function crowdFor(byAmount: TimedAmount[], w: TimedAmount, lookbackMs: number): number {
+  let crowd = 0;
+  for (let i = lowerBound(byAmount, w.amountZat); i < byAmount.length; i++) {
+    const d = byAmount[i]!;
+    if (d.amountZat - w.amountZat > FEE_BAND_ZAT) break;
+    if (d.time < w.time && w.time - d.time <= lookbackMs) crowd++;
   }
+  return crowd;
+}
+
+function tally(o: Outcome, crowd: number) {
+  o.withdrawals++;
+  if (crowd > 0) o.matched++;
+  if (crowd > 0 && crowd <= 2) o.standOut++;
+  if (crowd >= COMMON_SET_SIZE) o.blendedIn++;
+}
+
+/**
+ * @param dataStart earliest time our deposit data fully covers (default: now - 30 days).
+ */
+export function computeLinkStats(deposits: TimedAmount[], withdrawals: TimedAmount[], now: number, dataStart = now - WINDOW_DAYS * DAY): LinkStats {
+  const byAmount = deposits.filter((d) => d.time >= dataStart && d.time <= now).sort((a, b) => a.amountZat - b.amountZat);
+  const headlineMs = HEADLINE_LOOKBACK_DAYS * DAY;
+  const fairMs = FAIR_LOOKBACK_DAYS * DAY;
+  const empty = (lookbackDays: number): Outcome => ({ withdrawals: 0, matched: 0, standOut: 0, blendedIn: 0, lookbackDays });
+  const out: LinkStats = {
+    last24h: { ...empty(HEADLINE_LOOKBACK_DAYS), deposits: 0 },
+    fair: { ...empty(FAIR_LOOKBACK_DAYS), periodDays: Math.max(0, Math.round((now - dataStart - fairMs) / DAY)) },
+    deposits30d: byAmount.length,
+  };
+  for (const d of byAmount) if (now - d.time <= DAY) out.last24h.deposits++;
 
   for (const w of withdrawals) {
-    if (w.time > now || now - w.time > lookback) continue;
-    let crowd = 0;
-    for (let i = lowerBound(byAmount, w.amountZat); i < byAmount.length; i++) {
-      const d = byAmount[i]!;
-      if (d.amountZat - w.amountZat > FEE_BAND_ZAT) break;
-      if (d.time < w.time && w.time - d.time <= lookback) crowd++;
-    }
-    const windows = now - w.time <= DAY ? [out.last24h, out.last30d] : [out.last30d];
-    for (const s of windows) {
-      s.withdrawals++;
-      if (crowd > 0) s.matched++;
-      if (crowd > 0 && crowd <= 2) s.standOut++;
-      if (crowd >= COMMON_SET_SIZE) s.blendedIn++;
-    }
+    if (w.time > now) continue;
+    // Only withdrawals whose whole lookback lies inside our data are counted.
+    if (now - w.time <= DAY && w.time - headlineMs >= dataStart) tally(out.last24h, crowdFor(byAmount, w, headlineMs));
+    if (w.time - fairMs >= dataStart) tally(out.fair, crowdFor(byAmount, w, fairMs));
   }
   return out;
 }
 
 /** GET /api/v1/stats: the aggregate counts alone, so the home page needs no event data. */
 export interface StatsPayload {
-  v: 1;
+  /** 2: fixed-lookback stats (`fair`); version 1 had a biased `last30d`. */
+  v: 2;
   generatedAt: string;
   tipHeight: number | null;
   windowDays: number;
