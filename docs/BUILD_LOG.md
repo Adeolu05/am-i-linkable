@@ -357,3 +357,36 @@ or not yet due.
 Also: Next 16's `next dev` wrote an AGENTS.md file into apps/web; it was
 removed and disabled with `agentRules: false` so tooling instruction files
 never enter the repo.
+
+## 2026-10-19: Polish after reviewing the live site
+
+- **Honest 30-day stats.** The old 30-day stood-out count compared each
+  withdrawal with "all earlier deposits we have", so withdrawals early in the
+  30-day window (with little history) stood out more easily. Every withdrawal
+  is now compared with a fixed lookback lying fully inside the data, and
+  withdrawals without it are not counted: the home tiles cover the last 23
+  days, each withdrawal vs the 7 days before it. The 24-hour headline did
+  **not** have a full 30-day lookback (a withdrawal 20 h ago would need 30 days
+  and 20 h of history), so it now uses 29 days, which every last-24-hour
+  withdrawal fully has. Stats payload is `v: 2`; MATCHING.md explains the
+  reasoning, and a test shows the naive method flagging old withdrawals that
+  the fixed lookback does not. First live numbers: 64 of 816 withdrawals in the
+  last 24 h stood out; over 23 days, 4,360 of 22,579 stood out vs the 7 days
+  before them.
+- **Crowd chart.** Three lanes: larger amounts, a tall shaded matching zone,
+  smaller amounts. Nearby deposits are faded, sit in their own lanes on a log
+  distance scale, and never overlap the zone; matching deposits are large, in
+  the risk colour, with "36 min ago"-style tags on leader lines in rows that
+  never overlap. Labels live in a gutter no dot can enter. A common amount
+  fills the whole zone. Geometry is a pure, tested function (`crowdLayout`).
+- **Background seams: a stitching artifact, not a real bug.** Measured with
+  per-row colour analysis of the page margin: zero abrupt colour jumps in real
+  scrolling viewports and in a single-pass full-page capture. Each viewport
+  goes from navy at the top to near-black at the bottom (the background is
+  fixed), so a tool that stitches scrolled viewport captures puts a hard edge
+  at every viewport height. Nothing to fix in the page.
+- **Privacy receipt:** the hostname sits on its own line, never broken, with an
+  ellipsis if it ever does not fit.
+- **Verified in fixture mode (no database):** 375/768/1440 px, no horizontal
+  scroll, same-origin requests only, checks add 0 requests. Fixtures refreshed
+  with `export-fixtures -- stats-v1` (a few hundred bytes).
