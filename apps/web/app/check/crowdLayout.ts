@@ -79,7 +79,8 @@ export function crowdLayout(crowd: Crowd, amountZat: number, width: number, now 
   const dots: Dot[] = crowd.points.map((p) => {
     if (p.inBand) {
       const f = (p.amountZat - amountZat) / FEE_BAND_ZAT; // 0 = exactly your amount
-      return { x: x(p.time), y: matchBottom - f * (matchBottom - matchTop), r: many ? 3.6 : crowd.inBand <= 2 ? 7 : 5.5, kind: "match" };
+      const r = crowd.inBand > 300 ? 2.8 : many ? 3.6 : crowd.inBand <= 2 ? 7 : 5.5;
+      return { x: x(p.time), y: matchBottom - f * (matchBottom - matchTop), r, kind: "match" };
     }
     if (p.amountZat > top) {
       const f = logPos(p.amountZat - top, maxAbove);
