@@ -112,16 +112,40 @@ exists, not that anyone has linked you.
 
 ## Network stats (home page)
 
-`computeLinkStats` (packages/core) applies the same rule to every non-dust
-withdrawal in the last 30 days, counting earlier deposits in the fee band
-within the 30 days before it. Published at `GET /api/v1/stats` as counts only:
+`computeLinkStats` (packages/core) applies the checker's rule to every
+non-dust withdrawal and publishes **counts only** at `GET /api/v1/stats`:
 
-- **stood out**: 1–2 earlier matching deposits. These may be linkable, and
-  this is the headline figure.
+- **stood out**: only 1 or 2 matching deposits in the withdrawal's lookback.
+  These may be linkable; this is the headline.
 - **blended in**: 10 or more matching deposits.
-- **matched**: at least one earlier matching deposit. This is kept in the data,
-  but it is not shown as a headline, because it includes withdrawals that
-  blended into large crowds and so overstates risk.
+- **matched**: at least one matching deposit. Kept in the data, never used as
+  a headline, because it counts withdrawals that blended into large crowds and
+  so overstates risk.
 
-Limits: deposits older than the 30-day window are not seen, so a withdrawal
-early in the window may look less matched than it is.
+### Why a fixed lookback
+
+We hold exactly the last 30 days of deposits. If every withdrawal were simply
+compared with "all earlier deposits we have", a withdrawal from 28 days ago
+would be compared with 2 days of history and one from yesterday with 29.
+Older withdrawals would then find fewer matches and "stand out" more often,
+only because their history is missing. That inflates the stood-out count.
+
+So every withdrawal is compared with a **fixed lookback that lies entirely
+inside our data**, and withdrawals that do not have that full lookback are not
+counted:
+
+| View | Withdrawals counted | Each compared with |
+|---|---|---|
+| Headline: last 24 hours | all withdrawals of the last 24 hours | the **29 days** before it |
+| Long view (tiles) | withdrawals of the last **23 days** | the **7 days** before it |
+
+29 days is the longest lookback every last-24-hour withdrawal fully has: one
+made 24 hours ago reaches back exactly to the start of the 30-day window. The
+long view uses 7 days so that 23 days of withdrawals can all be judged the same
+way. A shorter lookback finds fewer matches than the checker's 30 days, so the
+long view's stood-out share is not directly comparable with the headline; the
+site labels it "vs the 7 days before them".
+
+Tests (`stats.test.ts`) include a steady stream of identical deposits and
+withdrawals: the naive method flags the oldest withdrawals as standing out;
+the fixed-lookback view flags none.

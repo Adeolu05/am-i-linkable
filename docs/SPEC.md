@@ -146,10 +146,12 @@ never scans events.
   characters of each txid are included. ETag/304, `max-age=0`,
   `s-maxage=300`. No addresses.
 - `GET /api/v1/stats` (live, snapshot `stats-v1`): aggregate counts only, for
-  the home page. For the last 24 hours and 30 days: deposits, withdrawals,
-  withdrawals that **stood out** (only 1–2 earlier matching deposits; they may
-  be linkable), and those that blended into a crowd of 10 or more. A few
-  hundred bytes, same ETag/cache headers. The home page loads only this; the
+  the home page (payload `v: 2`). Withdrawals that **stood out** (only 1–2
+  matching deposits in their lookback; they may be linkable) and those that
+  blended into a crowd of 10 or more, for the last 24 hours (each compared with
+  the 29 days before it) and for the last 23 days (each compared with the 7
+  days before it). Every withdrawal counted has its full lookback inside the
+  data; see docs/MATCHING.md. A few hundred bytes, same ETag/cache headers. The home page loads only this; the
   full deposit list is downloaded on `/check`.
 - `GET /api/v1/meta.json`: dataset window, generation time, and the current
   bucket plan (`prefixBits`, `bucketCount`, `minBucketSize`,
