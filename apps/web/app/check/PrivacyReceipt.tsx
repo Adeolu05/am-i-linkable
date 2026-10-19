@@ -79,7 +79,18 @@ export function PrivacyReceipt({ checksRun, baseline }: { checksRun: number; bas
 
       <p className={`mt-3 flex items-start gap-2 text-sm ${others.length === 0 ? "text-ink" : "text-risk-high"}`}>
         <CheckCircleIcon className={`mt-0.5 h-4 w-4 shrink-0 ${others.length === 0 ? "text-risk-low" : "text-risk-high"}`} />
-        {others.length === 0 ? <>All of them went to {host}. None to any other site.</> : <>{others.length} went to other sites.</>}
+        {others.length === 0 ? (
+          <span className="min-w-0 flex-1">
+            All of them went to
+            {/* The hostname stays on one line; if the column is too narrow it is cut with an ellipsis. */}
+            <span className="block truncate whitespace-nowrap font-semibold" title={host}>
+              {host}
+            </span>
+            None to any other site.
+          </span>
+        ) : (
+          <>{others.length} went to other sites.</>
+        )}
       </p>
       <p className="mt-3 text-sm leading-relaxed text-ink-muted">
         <strong className="font-semibold text-ink">Your amount never left your device.</strong> This list comes from
