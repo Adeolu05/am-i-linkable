@@ -227,7 +227,7 @@ describe("shields snapshot", () => {
     // Aggregates live in their own tiny row: the fake chain's 2 recent unshields have no earlier matching deposit.
     const statsRow = await readSnapshot(STATS_SNAPSHOT_KEY);
     const stats = JSON.parse(gunzipSync(statsRow.bodyGzip).toString("utf8")) as StatsPayload;
-    expect(stats).toMatchObject({ v: 1, tipHeight: 1000, windowDays: 30 });
+    expect(stats).toMatchObject({ v: 2, tipHeight: 1000, windowDays: 30 });
     expect(stats.stats.last24h).toMatchObject({ deposits: 1, withdrawals: 2, matched: 0, standOut: 0 });
     expect(statsRow.etag).toBe(etagFor(gunzipSync(statsRow.bodyGzip)));
     expect(statsRow.jsonBytes).toBeLessThan(1000);

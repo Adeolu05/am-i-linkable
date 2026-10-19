@@ -124,7 +124,7 @@ export class WindowMemory {
     const stats: LinkStats = computeLinkStats(shields, unshields, now.getTime());
     return {
       shields: encodeShields(shields, { generatedAt, tipHeight, windowDays: RETENTION_DAYS }),
-      stats: { v: 1, generatedAt, tipHeight, windowDays: RETENTION_DAYS, stats },
+      stats: { v: 2, generatedAt, tipHeight, windowDays: RETENTION_DAYS, stats },
       shieldCount: shields.length,
     };
   }
