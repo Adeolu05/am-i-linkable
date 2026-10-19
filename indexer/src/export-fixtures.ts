@@ -1,7 +1,8 @@
 // Saves the current public snapshots as local fixture files, so web design work
 // can run without touching the production database:
 //
-//   pnpm --filter indexer export-fixtures      # one small read (~0.7 MB)
+//   pnpm --filter indexer export-fixtures              # both (~0.6 MB read)
+//   pnpm --filter indexer export-fixtures -- stats-v1  # only the named keys (stats: < 1 KB)
 //   then start the web app with SNAPSHOT_FIXTURES_DIR=../../data/fixtures
 //
 // Writes data/fixtures/<key>.json (gitignored). Public data only.
@@ -19,7 +20,8 @@ async function main() {
   loadEnv();
   const { db, close } = openDb(requireEnv("DATABASE_URL", "Set it to the Neon pooled connection string."));
   try {
-    const keys = [SHIELDS_SNAPSHOT_KEY, STATS_SNAPSHOT_KEY];
+    const requested = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+    const keys = requested.length > 0 ? requested : [SHIELDS_SNAPSHOT_KEY, STATS_SNAPSHOT_KEY];
     // Only the gzip bodies cross the network (the smallest stored form).
     const rows = await db.select({ key: snapshots.key, body: snapshots.bodyGzip }).from(snapshots).where(inArray(snapshots.key, keys));
     const dir = path.join(DATA_DIR, "fixtures");
