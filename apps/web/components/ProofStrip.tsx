@@ -78,7 +78,7 @@ export function ProofStrip() {
             )}
           </p>
           <p className="mt-5 text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-            Last {fair?.periodDays ?? 23} days, each withdrawal vs the {fair?.lookbackDays ?? 7} days before it
+            Last {fair?.periodDays ?? 23} days · each vs the {fair?.lookbackDays ?? 7} days before
           </p>
           <div className="mt-2 grid grid-cols-2 gap-3">
             <Tile value={tile(fair?.standOut)} accent label={<>stood out vs the {fair?.lookbackDays ?? 7} days before them</>} />
