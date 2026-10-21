@@ -115,4 +115,16 @@ export interface StatsPayload {
   tipHeight: number | null;
   windowDays: number;
   stats: LinkStats;
+  /** The current address-bucket plan for "Have I been linked?" (absent before buckets existed). */
+  buckets?: BucketPlanInfo;
+}
+
+export interface BucketPlanInfo {
+  bits: number;
+  bucketCount: number;
+  minBucketSize: number;
+  maxBucketSize: number;
+  totalAddresses: number;
+  /** Sum of all bucket files (gzip): the paranoid-mode download size. */
+  totalGzipBytes: number;
 }

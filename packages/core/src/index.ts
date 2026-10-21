@@ -6,3 +6,6 @@ export * from "./shields";
 export * from "./match";
 export * from "./stats";
 export * from "./explore";
+export * from "./sha256";
+export * from "./address";
+export * from "./linked";
