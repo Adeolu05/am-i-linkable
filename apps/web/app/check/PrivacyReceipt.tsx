@@ -35,7 +35,19 @@ function read(): Entry[] {
 
 const formatBytes = (n: number | null) => (n === null ? "cached" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(2)} MB`);
 
-export function PrivacyReceipt({ checksRun, baseline }: { checksRun: number; baseline: number | null }) {
+export function PrivacyReceipt({
+  checksRun,
+  baseline,
+  summary,
+  subject = "amount",
+}: {
+  checksRun: number;
+  baseline: number | null;
+  /** Exactly what the last check sent, in one line (shown prominently when given). */
+  summary?: React.ReactNode;
+  /** What the user typed: "amount" on /check, "address" on /linked. */
+  subject?: "amount" | "address";
+}) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [host, setHost] = useState("this site");
 
@@ -61,6 +73,12 @@ export function PrivacyReceipt({ checksRun, baseline }: { checksRun: number; bas
           Privacy receipt
         </h2>
       </div>
+
+      {summary && (
+        <p className="tile mt-4 p-3.5 text-sm leading-relaxed text-ink" aria-live="polite">
+          {summary}
+        </p>
+      )}
 
       <dl className="mt-4 grid grid-cols-2 gap-3">
         <div className="tile p-3.5">
@@ -93,8 +111,9 @@ export function PrivacyReceipt({ checksRun, baseline }: { checksRun: number; bas
         )}
       </p>
       <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-        <strong className="font-semibold text-ink">Your amount never left your device.</strong> This list comes from
-        your browser&rsquo;s own record of the page&rsquo;s requests, and checking adds none.
+        <strong className="font-semibold text-ink">Your {subject} never left your device.</strong> This list comes from
+        your browser&rsquo;s own record of the page&rsquo;s requests.{" "}
+        {subject === "amount" ? "Checking adds none." : "A check adds only the bucket download described above."}
       </p>
 
       <details className="mt-3">
