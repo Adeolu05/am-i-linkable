@@ -1,14 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque, Inter, JetBrains_Mono } from "next/font/google";
+import { IBM_Plex_Mono } from "next/font/google";
 import Link from "next/link";
-import { LogoMark } from "@/components/icons";
+import { NavLinks, NavStatus, Ticker } from "@/components/Chrome";
 import "./globals.css";
 
-// next/font downloads these at build time and serves them from our own origin,
+// next/font downloads the font at build time and serves it from our own origin,
 // so visitors' browsers never contact a font CDN.
-const display = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-bricolage", display: "swap" });
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
-const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mono", display: "swap" });
+const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-plex-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: { default: "Am I Linkable?", template: "%s · Am I Linkable?" },
@@ -17,55 +15,55 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-export const viewport: Viewport = { themeColor: "#070b18", colorScheme: "dark" };
+export const viewport: Viewport = { themeColor: "#050807", colorScheme: "dark" };
+
+// Entrance animations run only when the tab is visible and painting frames, so
+// content never stays invisible in a background tab or a screenshot tool.
+const animGate =
+  "(function(){if(document.visibilityState!=='visible')return;var t=performance.now();requestAnimationFrame(function(){requestAnimationFrame(function(){if(performance.now()-t<250)document.documentElement.classList.add('anim')})})})();";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${inter.variable} ${mono.variable}`}>
+    <html lang="en" className={mono.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: animGate }} />
+      </head>
       {/* suppressHydrationWarning: browser extensions add attributes to <body> before React hydrates. */}
-      <body className="flex min-h-dvh flex-col font-sans antialiased" suppressHydrationWarning>
-        <div className="scene" aria-hidden="true">
-          <div className="blob blob-navy" />
-          <div className="blob blob-teal" />
-          <div className="blob blob-gold" />
-        </div>
+      <body className="flex min-h-dvh flex-col font-mono antialiased" suppressHydrationWarning>
         <a
           href="#main"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-gold focus:px-3 focus:py-2 focus:font-semibold focus:text-night"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:bg-accent focus:px-3 focus:py-2 focus:font-semibold focus:text-accent-ink"
         >
           Skip to content
         </a>
-        <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 pt-5 sm:px-6">
-          <Link href="/" prefetch={false} className="group flex items-center gap-2.5 rounded-full py-1 pr-2">
-            <LogoMark className="h-8 w-8" />
-            <span className="font-display text-base font-semibold tracking-tight sm:text-lg">Am I Linkable?</span>
-          </Link>
-          <nav aria-label="Main" className="flex items-center gap-2">
-            {[
-              ["/check", "Check an amount", "Amount"],
-              ["/linked", "Have I been linked?", "Address"],
-            ].map(([href, full, short]) => (
-              <Link
-                key={href}
-                href={href!}
-                prefetch={false}
-                className="rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-ink transition hover:border-gold/60 hover:text-white sm:px-4"
-              >
-                <span className="sm:hidden">{short}</span>
-                <span className="hidden sm:inline">{full}</span>
-              </Link>
-            ))}
-          </nav>
-        </header>
+        <div className="mx-auto w-full max-w-[1220px] px-4 sm:px-7">
+          <header className="flex h-[68px] items-center gap-5 border-b border-line sm:gap-8">
+            <Link href="/" prefetch={false} className="flex shrink-0 items-center gap-3 text-[15px] font-semibold tracking-[0.02em]">
+              <span className="h-[18px] w-[10px] bg-accent" aria-hidden="true" />
+              <span className="hidden min-[400px]:inline">am-i-linkable</span>
+              <span className="sr-only min-[400px]:hidden">Am I Linkable? home</span>
+            </Link>
+            <nav aria-label="Main">
+              <NavLinks />
+            </nav>
+            <div className="ml-auto">
+              <NavStatus />
+            </div>
+          </header>
+          <Ticker />
+        </div>
         <div id="main" className="flex flex-1 flex-col">
           {children}
         </div>
-        <footer className="mx-auto w-full max-w-6xl px-4 pb-8 pt-12 text-center text-sm text-ink-faint sm:px-6">
-          Public chain data from{" "}
-          <a href="https://3xpl.com" rel="noreferrer noopener" className="underline decoration-white/30 underline-offset-2 hover:text-ink">
-            3xpl
-          </a>
-          . No cookies, accounts or analytics. Open source under the MIT license.
+        <footer className="mx-auto mt-14 flex w-full max-w-[1220px] flex-wrap justify-between gap-3 border-t border-line px-4 pb-8 pt-4 text-[11px] text-ink-muted sm:px-7">
+          <span>
+            public chain data:{" "}
+            <a href="https://3xpl.com" rel="noreferrer noopener" className="lnk">
+              3xpl
+            </a>{" "}
+            · no cookies, accounts, analytics
+          </span>
+          <span>MIT · open source</span>
         </footer>
       </body>
     </html>
