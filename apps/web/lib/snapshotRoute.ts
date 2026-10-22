@@ -52,15 +52,26 @@ function accepts(header: string | null, encoding: string): boolean {
 const errorJson = (text: string, status: number) =>
   new Response(text, { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
 
+/** The snapshot row (or fixture file) does not exist. */
+export class MissingSnapshot extends Error {}
+
 /** Local fixture: a saved <key>.json served from disk, compressed in memory once. */
 async function fixtureState(dir: string, key: string): Promise<State> {
-  const json = await readFile(path.resolve(dir, `${key}.json`));
+  const json = await readFile(path.resolve(dir, `${key}.json`)).catch((err: NodeJS.ErrnoException) => {
+    throw err.code === "ENOENT" ? new MissingSnapshot(key) : err;
+  });
   const etag = `W/"${createHash("sha256").update(json).digest("base64url").slice(0, 22)}"`;
   const [g, b] = await Promise.all([gzipAsync(json, { level: 9 }), brotliAsync(json, { params: { [constants.BROTLI_PARAM_QUALITY]: 9 } })]);
   return { etag, hasBr: true, checkedAt: Number.POSITIVE_INFINITY, bodies: { identity: json, gzip: g, br: b }, pending: {} };
 }
 
-export function snapshotHandler(snapshotKey: string): (request: Request) => Promise<Response> {
+export interface SnapshotHandler {
+  (request: Request): Promise<Response>;
+  /** The snapshot as parsed JSON (same cache and ETag checks as the endpoint). */
+  json<T>(): Promise<T>;
+}
+
+export function snapshotHandler(snapshotKey: string, opts: { onMissing?: () => Response } = {}): SnapshotHandler {
   const fixturesDir = process.env.SNAPSHOT_FIXTURES_DIR?.trim() || null;
   let state: State | undefined;
   let checking: Promise<State> | undefined;
@@ -72,7 +83,7 @@ export function snapshotHandler(snapshotKey: string): (request: Request) => Prom
     checking ??= withReadonlyClient(async (client) => {
       const r = await client.query<{ etag: string; has_br: boolean }>("select etag, body_br is not null as has_br from snapshots where key = $1", [snapshotKey]);
       const row = r.rows[0];
-      if (!row) throw new Error("no snapshot yet");
+      if (!row) throw new MissingSnapshot(snapshotKey);
       state = state && state.etag === row.etag ? { ...state, hasBr: row.has_br, checkedAt: Date.now() } : fresh(row.etag, row.has_br);
       return state;
     }).finally(() => {
@@ -92,7 +103,7 @@ export function snapshotHandler(snapshotKey: string): (request: Request) => Prom
         [snapshotKey, want === "br"],
       );
       const row = r.rows[0];
-      if (!row) throw new Error("no snapshot yet");
+      if (!row) throw new MissingSnapshot(snapshotKey);
       const s = fresh(row.etag, row.has_br);
       if (row.br) s.bodies.br = row.br;
       if (row.gzip) s.bodies.gzip = row.gzip;
@@ -162,7 +173,14 @@ export function snapshotHandler(snapshotKey: string): (request: Request) => Prom
     return "identity";
   }
 
-  return async function GET(request: Request) {
+  let parsed: { etag: string; value: unknown } | undefined;
+  async function json<T>(): Promise<T> {
+    const s = await current("br");
+    if (parsed?.etag !== s.etag) parsed = { etag: s.etag, value: JSON.parse((await bodyFor(s, "identity")).toString("utf8")) };
+    return parsed.value as T;
+  }
+
+  async function GET(request: Request) {
     // Identical for everyone: refuse parameters (they would also bypass caches).
     if (new URL(request.url).search !== "") return errorJson(`{"error":"This endpoint takes no parameters."}`, 400);
 
@@ -170,7 +188,8 @@ export function snapshotHandler(snapshotKey: string): (request: Request) => Prom
     let s: State;
     try {
       s = await current(accepts(ae, "br") ? "br" : "gzip");
-    } catch {
+    } catch (err) {
+      if (err instanceof MissingSnapshot && opts.onMissing) return opts.onMissing();
       return errorJson(`{"error":"Data is temporarily unavailable."}`, 503);
     }
 
@@ -202,5 +221,7 @@ export function snapshotHandler(snapshotKey: string): (request: Request) => Prom
     };
     if (encoding !== "identity") headers["Content-Encoding"] = encoding;
     return new Response(new Uint8Array(body), { status: 200, headers });
-  };
+  }
+
+  return Object.assign(GET, { json });
 }
