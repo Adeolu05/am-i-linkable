@@ -1,119 +1,101 @@
 import Link from "next/link";
-import { ProofStrip } from "@/components/ProofStrip";
-import { ArrowRightIcon, CheckCircleIcon, CrowdIcon, DeviceIcon, DownloadIcon, LockIcon } from "@/components/icons";
+import { HomePrompt } from "@/components/HomePrompt";
+import { StatsStrip, StatsWindow } from "@/components/LiveStats";
+import { Cmd, Ln, Win } from "@/components/Term";
 
 const steps = [
-  {
-    icon: DownloadIcon,
-    title: "Get the same file as everyone",
-    body: "Your browser downloads every deposit into the shielded pools from the last 30 days. Everyone gets identical bytes.",
-  },
-  {
-    icon: DeviceIcon,
-    title: "Check on your device",
-    body: "You type an amount. It is compared with those deposits right here in the page. Nothing is sent.",
-  },
-  {
-    icon: CrowdIcon,
-    title: "See your crowd",
-    body: "Stand out or blend in? You get a risk level, the matching deposits, and ways to lower the risk.",
-  },
+  ["01 · download", "The same file for everyone", "Your browser downloads every deposit into the shielded pools from the last 30 days. Everyone gets identical bytes."],
+  ["02 · match", "On your machine", "You type an amount. It is compared with those deposits right here in the page. Nothing is sent."],
+  ["03 · read", "Stand out or blend in", "You get a risk level, the matching deposits, and ways to lower the risk. A risk signal, not proof."],
 ];
 
 const promises = ["Your amount never leaves your device", "No cookies, accounts or analytics", "No third-party requests, fonts or scripts", "Public chain data only"];
 
 export default function Home() {
   return (
-    <main className="mx-auto w-full max-w-6xl space-y-16 px-4 pb-6 pt-12 sm:px-6 sm:pt-16 lg:space-y-20">
-      <section className="animate-rise grid items-center gap-10 lg:grid-cols-[1.15fr_1fr]" aria-labelledby="hero">
-        <div className="space-y-6">
-          <p className="inline-flex items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-gold">
-            <LockIcon className="h-3.5 w-3.5" />
-            Zcash privacy check
+    <main className="mx-auto w-full max-w-[1220px] space-y-16 px-4 pt-12 sm:px-7 lg:space-y-20">
+      <section className="grid items-start gap-11 lg:grid-cols-[0.9fr_1.1fr]" aria-labelledby="hero">
+        <div className="min-w-0 space-y-7">
+          <p className="r up flex items-center gap-3" style={{ "--i": 0 } as React.CSSProperties}>
+            <span className="st live text-accent" aria-hidden="true">
+              <i />
+            </span>
+            Zcash privacy check · runs in your browser
           </p>
-          <h1 id="hero" className="font-display text-5xl font-bold leading-[1.02] tracking-tight sm:text-6xl lg:text-7xl">
-            Your amount can <span className="text-gold">give you away.</span>
+          <h1 id="hero" className="wipe text-[clamp(34px,4.6vw,62px)] font-semibold leading-[1.02] tracking-[-0.04em]">
+            <span>Checked here.</span>
+            <span className="text-accent">Sent nowhere.</span>
           </h1>
-          <p className="max-w-xl text-lg leading-relaxed text-ink-muted">
-            Moving ZEC out of a shielded pool? See whether the amount could be matched to a recent deposit, checked
-            entirely in your browser, so nobody learns what you looked up.
+          <p className="r max-w-[46ch] text-[15px] leading-relaxed text-ink-muted" style={{ "--i": 3 } as React.CSSProperties}>
+            Before you move ZEC out of a shielded pool, see whether the amount could be matched to a recent deposit. The
+            match runs on this machine; the network log on the check page proves it.
           </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/check"
-              prefetch={false}
-              className="group inline-flex min-h-14 items-center gap-3 rounded-2xl bg-gold px-7 text-lg font-semibold text-night shadow-glow-gold transition hover:bg-gold-bright"
-            >
-              Check an amount
-              <ArrowRightIcon className="h-5 w-5 transition group-hover:translate-x-1" />
-            </Link>
-            <a href="#how" className="rounded-xl px-4 py-3 font-medium text-ink-muted hover:text-ink">
-              How it works
-            </a>
+          <div className="r" style={{ "--i": 4 } as React.CSSProperties}>
+            <HomePrompt />
           </div>
         </div>
-        <ProofStrip />
+        <div className="r min-w-0" style={{ "--i": 2 } as React.CSSProperties}>
+          <StatsWindow />
+        </div>
       </section>
 
-      <section id="how" aria-labelledby="how-title" className="space-y-6">
-        <h2 id="how-title" className="font-display text-3xl font-semibold tracking-tight">
-          How it works
-        </h2>
-        <ol className="grid gap-4 md:grid-cols-3">
-          {steps.map(({ icon: Icon, title, body }, i) => (
-            <li key={title} className="glass p-6">
-              <div className="flex items-center gap-3">
-                <span className="grid h-11 w-11 place-items-center rounded-xl bg-gold/12 text-gold ring-1 ring-gold/30">
-                  <Icon className="h-6 w-6" />
-                </span>
-                <span className="font-mono text-sm text-ink-faint">Step {i + 1}</span>
-              </div>
-              <h3 className="mt-4 font-display text-xl font-semibold">{title}</h3>
-              <p className="mt-2 leading-relaxed text-ink-muted">{body}</p>
+      <StatsStrip />
+
+      <section id="how" aria-labelledby="how-title" className="scroll-mt-6">
+        <div className="sh">
+          <span className="n">01</span>
+          <h2 id="how-title">How it works</h2>
+        </div>
+        <ol className="cells grid-cols-1 md:grid-cols-3 max-md:[&>*]:border-l-0 max-md:[&>*+*]:border-t [&>*]:border-line">
+          {steps.map(([n, title, body]) => (
+            <li key={n}>
+              <p className="text-xs tracking-[0.14em] text-accent">{n}</p>
+              <h3 className="mt-2.5 text-base font-semibold">{title}</h3>
+              <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">{body}</p>
             </li>
           ))}
         </ol>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <div className="glass p-6 sm:p-8" aria-labelledby="promise">
-          <h2 id="promise" className="font-display text-2xl font-semibold tracking-tight">
-            The privacy promise
-          </h2>
-          <p className="mt-2 max-w-xl text-ink-muted">
-            A privacy tool should not become a new leak. This site is built so its operators cannot learn what you
-            check.
-          </p>
-          <ul className="mt-5 grid gap-3 sm:grid-cols-2">
-            {promises.map((p) => (
-              <li key={p} className="tile flex items-start gap-3 p-3.5">
-                <CheckCircleIcon className="mt-0.5 h-5 w-5 shrink-0 text-risk-low" />
-                <span>{p}</span>
-              </li>
+      <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+        <Win title="cat PROMISES" aria-labelledby="promise">
+          <div className="term">
+            <h2 id="promise" className="sr-only">
+              The privacy promise
+            </h2>
+            <Cmd i={0}>cat PROMISES</Cmd>
+            <Ln i={1} className="text-ink-muted">
+              {"# a privacy tool should not become a new leak. this site is built so its operators cannot learn what you check."}
+            </Ln>
+            {promises.map((p, i) => (
+              <Ln key={p} i={i + 2}>
+                <span className="text-risk-low">✓</span> {p}
+              </Ln>
             ))}
-          </ul>
-        </div>
+          </div>
+        </Win>
         <Link
           href="/linked"
           prefetch={false}
-          className="glass group flex flex-col justify-between gap-6 p-6 transition hover:border-gold/50 sm:p-8"
+          className="group flex flex-col justify-between gap-6 border-y border-line py-6 transition-colors hover:border-line-strong"
           aria-labelledby="linked-card"
         >
           <div>
-            <p className="inline-flex rounded-full border border-risk-low/40 bg-risk-low/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-risk-low">
-              Live
-            </p>
-            <h2 id="linked-card" className="mt-4 font-display text-2xl font-semibold tracking-tight">
+            <span className="st text-risk-low">
+              <i />
+              live
+            </span>
+            <h2 id="linked-card" className="mt-4 text-xl font-semibold tracking-[-0.02em]">
               Have I been linked?
             </h2>
-            <p className="mt-2 text-ink-muted">
-              Check a transparent address you already used, with a k-anonymous lookup: only a short hash prefix
-              leaves your device, and you get back a whole bucket of addresses to search locally.
+            <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+              Check a transparent address you already used, with a k-anonymous lookup: only a short hash prefix leaves
+              your device, and you get back a whole bucket of addresses to search locally.
             </p>
           </div>
-          <p className="inline-flex items-center gap-2 font-medium text-white">
-            Check an address
-            <ArrowRightIcon className="h-5 w-5 transition group-hover:translate-x-1" />
+          <p className="text-sm font-medium text-ink">
+            <span className="text-accent">$</span> check an address{" "}
+            <span className="inline-block text-accent transition-transform duration-300 group-hover:translate-x-1">→</span>
           </p>
         </Link>
       </section>
