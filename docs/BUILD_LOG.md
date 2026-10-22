@@ -390,3 +390,32 @@ never enter the repo.
 - **Verified in fixture mode (no database):** 375/768/1440 px, no horizontal
   scroll, same-origin requests only, checks add 0 requests. Fixtures refreshed
   with `export-fixtures -- stats-v1` (a few hundred bytes).
+
+## 2026-10-22: "Have I been linked?" (private address check)
+
+- **Address handling in `core`.** t1/t3 Base58Check validation, TEX (ZIP 320)
+  decoded and converted to its t1 form; shielded, unified and testnet input is
+  explained and nothing is sent. A pure TypeScript SHA-256 is shared by the
+  browser and the collector; tests compare it with Node's crypto and WebCrypto.
+- **Buckets from the in-memory window.** The collector now also loads the
+  transparent address rows of non-dust events in the window (hashed locally)
+  and builds `bucket-v1-<bits>-<id>` snapshots after each cycle. A bucket is
+  rewritten only when its ETag changes, old-plan rows are removed when the plan
+  changes, and the result equals a fresh database load after cycles, a prune
+  and a reorg (tested). Rows hold full hashes and per-event aggregates only: no
+  plaintext addresses and no counterparties (both tested).
+- **Endpoint.** `GET /api/v1/buckets/<bits>/<id>`, strictly validated (400), a
+  different bit length gets 409 "reload" and no data; same cache, ETag and
+  no-cookie pattern as the other snapshots. The plan is in the stats payload.
+- **Page `/linked`.** Input, Check, paranoid toggle with its download size,
+  privacy receipt saying exactly what was sent, a verdict, a colour-coded
+  timeline in plain English, advice, the no-activity message (which proves
+  nothing about older activity) and an ethics line. Home card is live; nav has
+  both tools.
+- **Numbers (built locally with `export-fixtures --build`, read-only):**
+  39,903 addresses, 5 bits, 32 buckets of 1,186 to 1,321; gzip about 90 KB per
+  bucket (largest 280 KB), 3.1 MB for paranoid mode. Egress: the collector's
+  startup load grows from about 5 MB to about 12 MB; a normal cycle reads about
+  5 KB more; bucket writes are ingress.
+- **Verified in fixture mode:** a normal check makes 1 request, paranoid 32, a
+  shielded address 0; all same-origin; no horizontal scroll at 375/768/1440 px.

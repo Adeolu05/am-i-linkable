@@ -153,12 +153,14 @@ never scans events.
   days before it). Every withdrawal counted has its full lookback inside the
   data; see docs/MATCHING.md. A few hundred bytes, same ETag/cache headers. The home page loads only this; the
   full deposit list is downloaded on `/check`.
-- `GET /api/v1/meta.json`: dataset window, generation time, and the current
-  bucket plan (`prefixBits`, `bucketCount`, `minBucketSize`,
-  `targetMinBucketSize`, `meetsTarget`, `totalAddresses`). The site reads this
-  to display the anonymity set.
-- `GET /api/v1/buckets/<bits>/<bucket-id>.json`: for one bucket, the list of
-  `{addressHash, events[]}` for transparent addresses that appear in any event.
+- `GET /api/v1/buckets/<bits>/<bucket-id>` (live, snapshots `bucket-v1-<bits>-<id>`):
+  one address bucket for "Have I been linked?". The stats payload carries the
+  current plan (`buckets: { bits, bucketCount, minBucketSize, maxBucketSize,
+  totalAddresses, totalGzipBytes }`). The path must be exactly a bucket id under
+  the current plan (decimal bits, zero-padded lowercase hex id); anything else is
+  400, and another bit length gets 409 "reload the plan" with no data. Gzip
+  only, no timestamps inside, so a bucket's bytes and ETag change only when its
+  contents do. Format and field rationale: docs/PRIVACY.md.
 - `GET /api/v1/weather.json`: aggregates for the pool weather page.
 
 ## 2. Web app
@@ -186,24 +188,29 @@ For someone planning to shield or unshield.
 For someone who has already moved funds and wants to know whether a
 transparent address of theirs sits in a likely round trip.
 
-1. The browser fetches `meta.json` to learn the current `prefixBits`.
-2. It computes `h = SHA-256(address)` (UTF-8 of the canonical address string).
-3. It requests only the bucket for the first `prefixBits` **bits** of `h`
-   (`buckets/<bits>/<bucket-id>.json`, id written as zero-padded hex).
-4. It receives the whole bucket and looks for `h` locally.
-5. If it finds a match, `core` runs the round-trip heuristics over that
-   address's non-dust events and explains the result as *candidates*, never as
-   proof.
+1. The address is validated locally (t1/t3 Base58Check; a TEX address is
+   converted to its t1 form; shielded, unified and testnet addresses are
+   explained and nothing is sent).
+2. The browser reads the current plan from `/api/v1/stats` and computes
+   `h = SHA-256(address)` (UTF-8 of the t1/t3 string) with the same pure
+   TypeScript code the collector uses.
+3. It requests only the bucket for the first `bits` bits of `h`, or every
+   bucket in **paranoid mode**.
+4. It looks for `h` in the bucket locally and explains each of that address's
+   non-dust events in the 30-day window, as *may be linkable*, never as proof.
+
+Live numbers (2026-10-22): 39,903 addresses with non-dust activity, 5 bits,
+32 buckets of 1,186 to 1,321 addresses; about 90 KB gzip per bucket (one
+outlier of 280 KB); all buckets together 3.1 MB.
 
 This is a k-anonymity range query, like HaveIBeenPwned's Pwned Passwords.
 
 **Dynamic prefix length.** Each time the dataset is rebuilt, the indexer picks
 the largest bit length for which the *smallest* bucket still holds at least
 **1,000 addresses** (`planBuckets` in `packages/core`). The current bit length and
-smallest bucket size are published in `meta.json` and shown on the site, so
-users can see their anonymity set. Bits rather than whole hex characters allow
-fine control: with the spike's 2,816 addresses the plan is 1 bit (2 buckets,
-smallest 1,399).
+smallest bucket size are published in the stats payload and shown on the site,
+so users can see their anonymity set. Bits rather than whole hex characters
+allow fine control.
 
 Limits we state openly: the server learns which bucket was requested, so it
 learns that the address is one of at least `minBucketSize` addresses in that
