@@ -147,7 +147,7 @@ export async function runCycle(opts: CycleOptions): Promise<CycleResult> {
         else if (!due) snapshotSkipped = `snapshot due in ${Math.ceil((minMs - (now().getTime() - memory.lastSnapshotAt!)) / 60_000)} min`;
         else {
           snapshot = await writeSnapshots(db, memory, now(), tip);
-          await refreshAggregates(db, now());
+          await refreshAggregates(db, now(), snapshot.buckets.plan);
           memory.dirty = false;
           memory.lastSnapshotAt = now().getTime();
         }

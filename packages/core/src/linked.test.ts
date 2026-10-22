@@ -132,7 +132,7 @@ describe("bucket files", () => {
         { hash: a, events: [event()] },
         { hash: b, events: [event({ direction: "shield", role: "input", info: { matches: 2, crowd: 1, gapMs: 2 * DAY, lookDays: 3 } })] },
       ],
-      { bits: 5, bucket: 13, generatedAt: new Date(NOW).toISOString(), tipHeight: 3_520_000, windowDays: 30 },
+      { bits: 5, bucket: 13, windowDays: 30 },
     );
     const back = JSON.parse(JSON.stringify(p));
     expect(findInBucket(back, a)).toEqual([
@@ -147,11 +147,9 @@ describe("bucket files", () => {
     const p = encodeBucket([{ hash: addressHash("t1WZY9kwRXkj68wGA1m8twRf63DkmqZuQnJ"), events: [event()] }], {
       bits: 0,
       bucket: 0,
-      generatedAt: "x",
-      tipHeight: null,
       windowDays: 30,
     });
-    expect(Object.keys(p).sort()).toEqual(["addresses", "baseTime", "bits", "bucket", "bucketCount", "generatedAt", "pools", "tipHeight", "v", "windowDays"]);
+    expect(Object.keys(p).sort()).toEqual(["addresses", "baseTime", "bits", "bucket", "bucketCount", "pools", "v", "windowDays"]);
     const row = p.addresses[0]![1][0]!;
     expect(row).toHaveLength(10);
     // Every field is a number or the address's own 12-character txid prefix.
@@ -185,5 +183,17 @@ describe("explanations", () => {
     expect(addressVerdict([ok])).toBe("low");
     expect(addressVerdict([ok, bad])).toBe("high");
     expect(addressVerdict([])).toBe("low");
+  });
+});
+
+describe("computeLinkInfo coverage", () => {
+  it("returns an entry for every event, even one timed after now", () => {
+    const events: LinkEventInput[] = [
+      { id: 1, time: NOW + 60_000, amountZat: 100_000_000, direction: "unshield" },
+      { id: 2, time: NOW - H, amountZat: 100_000_000, direction: "shield" },
+    ];
+    const info = computeLinkInfo(events, NOW);
+    expect(info.get(1)).toMatchObject({ matches: 1 });
+    expect(info.size).toBe(2);
   });
 });

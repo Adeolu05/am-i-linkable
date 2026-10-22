@@ -254,8 +254,9 @@ export async function setRunMeta(db: Db, now: Date, tipHeight: number | null): P
  * Recomputes the bucket plan and window stats (aggregates computed in the
  * database; only a few KB come back). Run when snapshots are rebuilt, not every cycle.
  */
-export async function refreshAggregates(db: Db, now: Date): Promise<{ plan: BucketPlan; stats: Stats }> {
-  const plan = await computeBucketPlan(db);
+export async function refreshAggregates(db: Db, now: Date, knownPlan?: BucketPlan): Promise<{ plan: BucketPlan; stats: Stats }> {
+  // The collector passes the plan it computed in memory; only one-off jobs ask the database.
+  const plan = knownPlan ?? (await computeBucketPlan(db));
   const stats = await computeStats(db, now);
   await setMeta(db, "bucket_plan", { ...plan, targetMinBucketSize: DEFAULT_MIN_BUCKET_SIZE }, now);
   await setMeta(db, "stats", stats, now);

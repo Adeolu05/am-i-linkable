@@ -61,7 +61,9 @@ export function computeLinkInfo(events: LinkEventInput[], now: number, dataStart
   const depositBest = new Map<number, { later: number; crowd: number; gap: number }>();
 
   for (const w of events) {
-    if (w.direction !== "unshield" || w.time > now) continue;
+    // Every withdrawal gets an entry (even one stamped slightly after `now` by clock skew);
+    // it can only ever match deposits made before it.
+    if (w.direction !== "unshield") continue;
     const matched: LinkEventInput[] = [];
     for (let i = lower(w.amountZat); i < deposits.length; i++) {
       const d = deposits[i]!;
@@ -111,13 +113,16 @@ export function computeLinkInfo(events: LinkEventInput[], now: number, dataStart
  */
 export type BucketEventRow = [number, number, 0 | 1, number, string, 0 | 1, number, number, number, number];
 
+/**
+ * No timestamps of its own: the bytes (and ETag) change only when an address's
+ * data changes, so unchanged buckets are neither rewritten nor re-downloaded.
+ * Freshness comes from GET /api/v1/stats.
+ */
 export interface BucketPayload {
   v: 1;
   bits: number;
   bucket: number;
   bucketCount: number;
-  generatedAt: string;
-  tipHeight: number | null;
   windowDays: number;
   /** Unix seconds that event time offsets are relative to. */
   baseTime: number;
@@ -146,7 +151,7 @@ export interface AddressEvent {
 
 export function encodeBucket(
   addresses: { hash: Uint8Array; events: AddressEvent[] }[],
-  meta: { bits: number; bucket: number; generatedAt: string; tipHeight: number | null; windowDays: number },
+  meta: { bits: number; bucket: number; windowDays: number },
 ): BucketPayload {
   const all = addresses.flatMap((a) => a.events);
   const baseTime = all.length > 0 ? Math.floor(Math.min(...all.map((e) => e.time)) / 1000) : 0;
