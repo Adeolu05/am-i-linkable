@@ -3,6 +3,7 @@
 //
 //   pnpm --filter indexer export-fixtures              # both (~0.6 MB read)
 //   pnpm --filter indexer export-fixtures -- stats-v1  # only the named keys (stats: < 1 KB)
+//   pnpm --filter indexer export-fixtures -- buckets   # every address bucket of the current plan
 //   then start the web app with SNAPSHOT_FIXTURES_DIR=../../data/fixtures
 //
 // Writes data/fixtures/<key>.json (gitignored). Public data only.
@@ -10,7 +11,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { inArray } from "drizzle-orm";
+import { inArray, like, or } from "drizzle-orm";
 import { openDb } from "./db/client";
 import { snapshots } from "./db/schema";
 import { DATA_DIR, describeError, loadEnv, requireEnv } from "./env";
@@ -21,9 +22,12 @@ async function main() {
   const { db, close } = openDb(requireEnv("DATABASE_URL", "Set it to the Neon pooled connection string."));
   try {
     const requested = process.argv.slice(2).filter((a) => !a.startsWith("-"));
-    const keys = requested.length > 0 ? requested : [SHIELDS_SNAPSHOT_KEY, STATS_SNAPSHOT_KEY];
+    const wantBuckets = requested.includes("buckets");
+    const keys = requested.filter((k) => k !== "buckets");
+    if (requested.length === 0) keys.push(SHIELDS_SNAPSHOT_KEY, STATS_SNAPSHOT_KEY);
     // Only the gzip bodies cross the network (the smallest stored form).
-    const rows = await db.select({ key: snapshots.key, body: snapshots.bodyGzip }).from(snapshots).where(inArray(snapshots.key, keys));
+    const where = wantBuckets ? or(inArray(snapshots.key, keys.length > 0 ? keys : ["-"]), like(snapshots.key, "bucket-v1-%")) : inArray(snapshots.key, keys);
+    const rows = await db.select({ key: snapshots.key, body: snapshots.bodyGzip }).from(snapshots).where(where);
     const dir = path.join(DATA_DIR, "fixtures");
     await mkdir(dir, { recursive: true });
     for (const r of rows) {
@@ -31,6 +35,7 @@ async function main() {
       await writeFile(path.join(dir, `${r.key}.json`), json);
       console.log(`data/fixtures/${r.key}.json: ${Math.round(json.length / 1024)} KB (downloaded ${Math.round(r.body.length / 1024)} KB)`);
     }
+    if (wantBuckets) console.log(`buckets: ${rows.filter((r) => r.key.startsWith("bucket-v1-")).length} files, ${Math.round(rows.filter((r) => r.key.startsWith("bucket-v1-")).reduce((n, r) => n + r.body.length, 0) / 1024)} KB gzip in total`);
     const missing = keys.filter((k) => !rows.some((r) => r.key === k));
     if (missing.length > 0) console.log(`not found yet: ${missing.join(", ")}`);
   } finally {
