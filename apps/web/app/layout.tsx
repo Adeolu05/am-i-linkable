@@ -38,16 +38,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 pt-5 sm:px-6">
           <Link href="/" prefetch={false} className="group flex items-center gap-2.5 rounded-full py-1 pr-2">
             <LogoMark className="h-8 w-8" />
-            <span className="font-display text-lg font-semibold tracking-tight">Am I Linkable?</span>
+            <span className="font-display text-base font-semibold tracking-tight sm:text-lg">Am I Linkable?</span>
           </Link>
-          <nav aria-label="Main">
-            <Link
-              href="/check"
-              prefetch={false}
-              className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-ink transition hover:border-gold/60 hover:text-white"
-            >
-              Check an amount
-            </Link>
+          <nav aria-label="Main" className="flex items-center gap-2">
+            {[
+              ["/check", "Check an amount", "Amount"],
+              ["/linked", "Have I been linked?", "Address"],
+            ].map(([href, full, short]) => (
+              <Link
+                key={href}
+                href={href!}
+                prefetch={false}
+                className="rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-ink transition hover:border-gold/60 hover:text-white sm:px-4"
+              >
+                <span className="sm:hidden">{short}</span>
+                <span className="hidden sm:inline">{full}</span>
+              </Link>
+            ))}
           </nav>
         </header>
         <div id="main" className="flex flex-1 flex-col">

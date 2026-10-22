@@ -93,12 +93,17 @@ export default function Home() {
             ))}
           </ul>
         </div>
-        <div className="glass flex flex-col justify-between gap-6 p-6 sm:p-8" aria-labelledby="soon">
+        <Link
+          href="/linked"
+          prefetch={false}
+          className="glass group flex flex-col justify-between gap-6 p-6 transition hover:border-gold/50 sm:p-8"
+          aria-labelledby="linked-card"
+        >
           <div>
-            <p className="inline-flex rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink-muted">
-              Coming soon
+            <p className="inline-flex rounded-full border border-risk-low/40 bg-risk-low/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-risk-low">
+              Live
             </p>
-            <h2 id="soon" className="mt-4 font-display text-2xl font-semibold tracking-tight">
+            <h2 id="linked-card" className="mt-4 font-display text-2xl font-semibold tracking-tight">
               Have I been linked?
             </h2>
             <p className="mt-2 text-ink-muted">
@@ -106,8 +111,11 @@ export default function Home() {
               leaves your device, and you get back a whole bucket of addresses to search locally.
             </p>
           </div>
-          <p className="text-sm text-ink-faint">Like HaveIBeenPwned&rsquo;s password check, built for Zcash.</p>
-        </div>
+          <p className="inline-flex items-center gap-2 font-medium text-white">
+            Check an address
+            <ArrowRightIcon className="h-5 w-5 transition group-hover:translate-x-1" />
+          </p>
+        </Link>
       </section>
     </main>
   );
