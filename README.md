@@ -13,6 +13,11 @@ checked**. All matching runs in your browser. Built for ZECATHON (Core & Tooling
 See [docs/SPEC.md](docs/SPEC.md), [docs/PRIVACY.md](docs/PRIVACY.md),
 [docs/PRIOR_ART.md](docs/PRIOR_ART.md) and [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
+**Privacy self-audit:** [docs/AUDIT.md](docs/AUDIT.md) checks every layer
+(browser, headers, hosting, data, collector, repo, dependencies) with the
+evidence for each item and the known limitations. Re-run the browser part with
+`node apps/web/scripts/privacy-audit.mjs` against a running site.
+
 ## Layout
 
 ```
@@ -194,10 +199,17 @@ password stops working immediately, so update the host straight away.
 pnpm test        # vitest in core and indexer
 pnpm typecheck   # tsc in every package
 pnpm dev         # web app on http://localhost:3000
+pnpm build       # web app: two builds for the CSP script hashes (see below)
+pnpm --filter indexer create-web-role -- --verify   # read-only check of the web role
 ```
 
-Next.js collects anonymous build telemetry by default. To turn it off on your
-machine, run `pnpm --filter @ail/web exec next telemetry disable`.
+The web app's scripts (`apps/web/scripts/next.mjs`) run Next.js with
+`NEXT_TELEMETRY_DISABLED=1`. `pnpm build` builds twice with one build id: the
+first build is read to collect the SHA-256 of each inline script, the second
+serves them in the Content-Security-Policy, and the build fails if they
+differ. A plain `next build` stops with an error, so a deploy can never ship
+pages its own CSP would block. On Vercel, keep the default build command (it
+runs `pnpm build` in `apps/web`).
 
 ## Credits
 

@@ -419,3 +419,43 @@ never enter the repo.
   5 KB more; bucket writes are ingress.
 - **Verified in fixture mode:** a normal check makes 1 request, paranoid 32, a
   shielded address 0; all same-origin; no horizontal scroll at 375/768/1440 px.
+
+## 2026-10-23: Privacy self-audit before submission
+
+Every layer checked; the full checklist with evidence is in docs/AUDIT.md.
+What changed:
+
+- **Amount no longer in a URL.** The home page used to hand an amount to
+  `/check` in the fragment (`/check#2.5`). It was never sent to a server, but
+  it did leave a browser history entry. The amount is now handed over in
+  memory, and `/check` ignores an amount in a fragment; only the fixed words
+  `#risky` and `#common` remain.
+- **Strict Content-Security-Policy without `unsafe-inline` for scripts.** The
+  pages are static, so nonces would have meant rendering every page on demand.
+  Instead `apps/web/scripts/next.mjs` builds twice with one build id, collects
+  the SHA-256 of each inline script from the first build and serves them in
+  the CSP of the second, failing the build if they differ. A plain
+  `next build` refuses to run. Also: `frame-ancestors 'none'`,
+  `form-action 'none'`, a Permissions-Policy that denies 33 features,
+  `X-Frame-Options`, HSTS, COOP and CORP. Checked in the browser that injected
+  inline scripts, external scripts and third-party fetches are blocked.
+- **Next.js 16.4.0 → 16.4.3** for three published advisories (Image
+  Optimization with SVGs, `use cache`, Server Actions DoS); the site used none
+  of those features.
+- **Telemetry off for every Next.js command** (`NEXT_TELEMETRY_DISABLED=1` in
+  the package scripts).
+- **Reusable browser audit** (`apps/web/scripts/privacy-audit.mjs`): headless
+  Chrome checks third-party requests, what Check sends, CSP violations,
+  cookies and storage, history entries and titles, input attributes and
+  headers. Locally, fixture mode: 33 passed, 0 failed.
+- **Stats test** now asserts the payload is aggregates only (no lists, only
+  numbers and the generation time).
+- **Read-only role check:** `create-web-role -- --verify` reads the catalog and
+  probes as `web_readonly` without changing anything. SELECT on `snapshots`
+  only; everything else refused.
+- **Collector:** the 3xpl network-retry log line now goes through the same
+  redaction as every other error.
+- PRIVACY.md names the host (Vercel) and what its logs keep.
+
+Tests: 128 (core 51, indexer 51, web 26). gitleaks over all refs and the
+stash: no leaks.

@@ -90,11 +90,14 @@ generation time, so a bucket's bytes change only when its contents do.
 
 - **The application does not log IP addresses.** Our code does not record who
   requested what.
-- **Honest disclosure:** the hosting platform (and any CDN in front of it) may
-  keep standard access logs containing your IP address, user agent, time, and
-  the requested path. For a bucket request, that path includes the hash prefix.
-  We do not control those logs. We will name the hosting provider and link its
-  log retention policy once it is chosen.
+- **Honest disclosure:** the website is hosted on Vercel, whose CDN and
+  function platform see your IP address, user agent, the time and the requested
+  path, as any web host does. For a bucket request, that path includes the
+  bucket number. The request logs visible to us keep the path, time, user agent
+  and region for one hour ([Vercel runtime logs](https://vercel.com/docs/logs/runtime));
+  what Vercel keeps internally is covered by its own privacy policy. We do not
+  control those logs, and we do not add log drains, analytics or
+  monitoring. See [AUDIT.md](AUDIT.md) for the full list of what each layer sees.
 - If this matters to you, use Tor or a trusted VPN. The tool works the same way.
 
 ## What the prefix still reveals
