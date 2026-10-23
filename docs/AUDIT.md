@@ -19,6 +19,15 @@ runs every kind of check, and fails on any of the problems listed in section 1.
 It ran locally in fixture mode (real exported data, no database): **33 passed,
 0 failed**.
 
+Against the live site (`https://am-i-linkable.vercel.app`, deployment of
+commit `94b05b2`) it ran once with `--light` (one load of each page, one amount
+hand-off and one address check, to keep load on the host minimal): **26
+passed, 1 failed**. The one failure is the open item in section 2: on Vercel,
+scripts are currently allowed by `'self' 'unsafe-inline'` instead of hashes.
+Everything else held on production, including no third-party requests, no
+cookies or storage, nothing in URLs or history, exactly one bucket request, and
+no CSP violations.
+
 ## 1. Browser
 
 | Item | Result | Evidence |
@@ -43,8 +52,8 @@ Set for every path in `apps/web/next.config.ts`. Verified on the documents by
 
 | Header | Result | Value / evidence |
 |---|---|---|
-| Content-Security-Policy | FIXED (was missing) | `default-src 'self'; script-src 'self' 'sha256-…' (8 hashes); style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; worker-src 'none'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'` |
-| No `unsafe-inline` or `unsafe-eval` for scripts | FIXED | Every page is static, so there is no per-request nonce. `apps/web/scripts/next.mjs` builds twice with one build id: the first build is read for the SHA-256 of each inline script (our animation gate and the scripts Next.js writes), and the second serves exactly those hashes. If the second build contains any inline script not in the list, or no hashes can be collected, or plain `next build` runs, scripts fall back to `'self' 'unsafe-inline'` with a warning in the build log, so a deploy never ships a page its own CSP would block. `privacy-audit.mjs` fails on that fallback, so it cannot go unnoticed. |
+| Content-Security-Policy | FIXED (was missing; live on Vercel) | `default-src 'self'; script-src 'self' 'sha256-…' (8 hashes; on Vercel for now `'self' 'unsafe-inline'`, see next row); style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; worker-src 'none'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'` |
+| No `unsafe-inline` or `unsafe-eval` for scripts | **OPEN on Vercel** (FIXED locally) | Locally the CSP carries 8 script hashes and no `unsafe-inline`. On Vercel the build script runs (the live pages carry its 12-character build id), but its hash step fell back, so production currently serves `script-src 'self' 'unsafe-inline'`. Vercel builds through its own build adapter (for example, it serves chunks from `/_next/static/immutable/`), so its prerendered pages either sit somewhere else or differ between the two builds; the `[csp]` lines in the Vercel build log say which. Even with the fallback, scripts can only come from this origin and `connect-src 'self'` stops any script from sending data elsewhere. How it works: every page is static, so there is no per-request nonce. `apps/web/scripts/next.mjs` builds twice with one build id: the first build is read for the SHA-256 of each inline script (our animation gate and the scripts Next.js writes), and the second serves exactly those hashes. If the second build contains any inline script not in the list, or no hashes can be collected, or plain `next build` runs, scripts fall back to `'self' 'unsafe-inline'` with a warning in the build log, so a deploy never ships a page its own CSP would block. `privacy-audit.mjs` fails on that fallback, so it cannot go unnoticed. |
 | The site works under the CSP | PASS | `privacy-audit.mjs` runs every kind of check under the CSP: "No Content-Security-Policy violations", "No script errors", and results render. |
 | `frame-ancestors 'none'` (+ `X-Frame-Options: DENY`) | FIXED | Both set. |
 | `Referrer-Policy: no-referrer` | PASS | Also set as `<meta name="referrer">` by the root layout. |
@@ -142,6 +151,10 @@ the CSP would block a request to any of them.
   timing heuristics to public chain data. "Low risk" does not mean unlinkable
   (an adversary may hold exchange records or network data), and "may be
   linkable" does not mean anyone has linked you.
+- **Inline scripts are allowed on Vercel for now.** Until the hash step works
+  in Vercel's build, production allows inline scripts (`'self'
+  'unsafe-inline'`). An injected inline script could run there, but it still
+  could not load code from, or send data to, any other origin.
 - **Inline styles are allowed.** `style-src` includes `'unsafe-inline'` for
   React's style attributes. This cannot run code or send data (every fetch is
   limited to this origin).

@@ -462,3 +462,9 @@ What changed:
 
 Tests: 128 (core 51, indexer 51, web 26). gitleaks over all refs and the
 stash: no leaks.
+
+Live check (once, `--light`, deployment of `94b05b2`): 26 of 27 passed. The
+one open item is the CSP on Vercel: the build script runs there, but its hash
+step falls back, so production serves `script-src 'self' 'unsafe-inline'`
+until the `[csp]` lines in the Vercel build log show why (Vercel builds
+through its own adapter, which changes the output, e.g. `/_next/static/immutable/`).
