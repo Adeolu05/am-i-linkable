@@ -206,10 +206,12 @@ pnpm --filter indexer create-web-role -- --verify   # read-only check of the web
 The web app's scripts (`apps/web/scripts/next.mjs`) run Next.js with
 `NEXT_TELEMETRY_DISABLED=1`. `pnpm build` builds twice with one build id: the
 first build is read to collect the SHA-256 of each inline script, the second
-serves them in the Content-Security-Policy, and the build fails if they
-differ. A plain `next build` stops with an error, so a deploy can never ship
-pages its own CSP would block. On Vercel, keep the default build command (it
-runs `pnpm build` in `apps/web`).
+serves them in the Content-Security-Policy. If the hashes cannot be collected
+or the builds differ, or if plain `next build` runs, scripts fall back to
+`'self' 'unsafe-inline'` with a warning in the build log, so a deploy never
+ships pages its own CSP would block. `privacy-audit.mjs` fails on that
+fallback. On Vercel, keep the default build command (it runs `pnpm build` in
+`apps/web`).
 
 ## Credits
 

@@ -434,8 +434,11 @@ What changed:
   pages are static, so nonces would have meant rendering every page on demand.
   Instead `apps/web/scripts/next.mjs` builds twice with one build id, collects
   the SHA-256 of each inline script from the first build and serves them in
-  the CSP of the second, failing the build if they differ. A plain
-  `next build` refuses to run. Also: `frame-ancestors 'none'`,
+  the CSP of the second. If that fails (no hashes, the builds differ, or a
+  plain `next build`), scripts fall back to `'self' 'unsafe-inline'` with a
+  warning in the build log rather than failing the deploy; the first version
+  failed hard, and its first Vercel deploy failed, so the live site stayed on
+  the previous deployment until the fallback landed. Also: `frame-ancestors 'none'`,
   `form-action 'none'`, a Permissions-Policy that denies 33 features,
   `X-Frame-Options`, HSTS, COOP and CORP. Checked in the browser that injected
   inline scripts, external scripts and third-party fetches are blocked.
