@@ -4,6 +4,7 @@
 
 import { createHash } from "node:crypto";
 import type { BlockSource } from "../cycle";
+import { describeError } from "../env";
 import type { SourceBlock } from "../ingest";
 import type { BalanceEffect, RawTx } from "../turnstile";
 
@@ -130,7 +131,7 @@ export class ThreeXplClient {
           signal: AbortSignal.timeout(30_000),
         });
       } catch (err) {
-        this.log(`network error (${(err as Error).message}), retrying in ${backoff / 1000}s`);
+        this.log(`network error (${describeError(err)}), retrying in ${backoff / 1000}s`);
         await sleep(backoff);
         backoff = Math.min(backoff * 2, 120_000);
         continue;

@@ -231,6 +231,17 @@ describe("shields snapshot", () => {
     expect(stats.stats.last24h).toMatchObject({ deposits: 1, withdrawals: 2, matched: 0, standOut: 0 });
     expect(statsRow.etag).toBe(etagFor(gunzipSync(statsRow.bodyGzip)));
     expect(statsRow.jsonBytes).toBeLessThan(1000);
+    // Aggregates only: no lists, no txids, no addresses; every value is a count
+    // or setting, apart from the generation time.
+    const leaves: [string, unknown][] = [];
+    const walk = (v: unknown, at: string): void => {
+      expect(Array.isArray(v), `${at} is a list`).toBe(false);
+      if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, `${at}.${k}`);
+      else leaves.push([at, v]);
+    };
+    walk(stats, "stats");
+    for (const [at, v] of leaves) expect(typeof v === "number" || (at === "stats.generatedAt" && typeof v === "string"), at).toBe(true);
+    expect(gunzipSync(statsRow.bodyGzip).toString()).not.toMatch(/cccccccccccc|t[13][1-9A-HJ-NP-Za-km-z]{33}/);
     expect(payload.rows).toEqual([[0, 250_000_000, 1, "cccccccccccc"]]);
     const json = gunzipSync(row.bodyGzip);
     expect(json.toString()).not.toContain(full);
