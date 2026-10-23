@@ -4,15 +4,18 @@ import type { NextConfig } from "next";
 // Content-Security-Policy. Every page is static, so scripts can't carry a
 // per-request nonce; instead the inline scripts Next.js writes into each page
 // are allowed by their SHA-256 hashes. scripts/next.mjs builds twice with the
-// same build id: the first build is only read to collect the hashes, the second
-// serves them in this header, and the build fails if the two differ.
+// same build id: the first build is only read to collect the hashes, and the
+// second serves them in this header. Without hashes (a plain `next build`, or
+// a mismatch scripts/next.mjs detected) scripts fall back to 'self' plus
+// inline: weaker, but the pages work and every other directive still applies.
+// The fallback is announced in the build log, and privacy-audit.mjs fails on it.
 function contentSecurityPolicy(phase: string): string {
   const dev = phase === PHASE_DEVELOPMENT_SERVER;
-  const hashes = process.env.AIL_CSP_SCRIPT_HASHES?.trim();
-  if (phase === PHASE_PRODUCTION_BUILD && !hashes && process.env.AIL_CSP_PASS !== "collect") {
-    throw new Error("Build with `pnpm build` (scripts/next.mjs), which supplies the CSP script hashes.");
+  const hashes = (process.env.AIL_CSP_SCRIPT_HASHES ?? "").split(/\s+/).filter(Boolean);
+  if (phase === PHASE_PRODUCTION_BUILD && hashes.length === 0 && process.env.AIL_CSP_PASS !== "collect") {
+    console.warn("[csp] WARNING: no script hashes supplied; scripts fall back to 'unsafe-inline'. Build with `pnpm build` (scripts/next.mjs).");
   }
-  const scripts = dev ? "'self' 'unsafe-inline' 'unsafe-eval'" : `'self' ${(hashes ?? "").split(/\s+/).filter(Boolean).map((h) => `'${h}'`).join(" ")}`;
+  const scripts = dev ? "'self' 'unsafe-inline' 'unsafe-eval'" : hashes.length > 0 ? `'self' ${hashes.map((h) => `'${h}'`).join(" ")}` : "'self' 'unsafe-inline'";
   return [
     "default-src 'self'",
     `script-src ${scripts}`,

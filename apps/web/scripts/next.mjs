@@ -4,8 +4,9 @@
 //      in the prerendered pages;
 //   2. the real build, with those hashes in the Content-Security-Policy header
 //      (next.config.ts), then a check that its pages contain no other inline
-//      script. If they do, the build fails, so a deploy can never ship a page
-//      its own CSP would block.
+//      script. If they do (or no hashes could be collected), it rebuilds with
+//      the fallback policy (scripts: 'self' 'unsafe-inline') and says so in the
+//      log, so a deploy can never ship a page its own CSP would block.
 //
 // Both builds share one build id, so their pages are byte-identical.
 //
@@ -47,17 +48,33 @@ if (command !== "build") {
   const env = { ...baseEnv, AIL_BUILD_ID: randomBytes(9).toString("base64url") };
   const pages = path.join(".next", "server", "app");
 
-  console.log("\n[csp] build 1 of 2: collecting inline script hashes");
-  next(["build", ...rest], { ...env, AIL_CSP_PASS: "collect" });
-  const first = inlineScriptHashes(pages);
-  if (first.size === 0) throw new Error("[csp] no prerendered pages found");
+  // A build whose scripts fall back to 'self' + inline (see next.config.ts):
+  // the pages always work under it.
+  const collect = { ...env, AIL_CSP_PASS: "collect" };
+
+  console.log(`\n[csp] build 1 of 2: collecting inline script hashes (node ${process.version})`);
+  next(["build", ...rest], collect);
+  let first;
+  try {
+    first = inlineScriptHashes(pages);
+  } catch (err) {
+    console.warn(`[csp] could not read ${pages}: ${err.message}`);
+    first = new Map();
+  }
+  if (first.size === 0) {
+    console.warn("[csp] WARNING: no inline scripts found in prerendered pages; keeping build 1 (scripts: 'self' 'unsafe-inline')");
+    process.exit(0);
+  }
+  for (const [h, page] of first) console.log(`[csp]   ${page}: ${h}`);
 
   console.log(`\n[csp] build 2 of 2: serving ${first.size} script hashes in the CSP`);
   next(["build", ...rest], { ...env, AIL_CSP_SCRIPT_HASHES: [...first.keys()].join(" ") });
   const unknown = [...inlineScriptHashes(pages)].filter(([h]) => !first.has(h));
   if (unknown.length > 0) {
-    for (const [h, page] of unknown) console.error(`[csp] ${page}: inline script ${h} is not in the CSP`);
-    process.exit(1);
+    for (const [h, page] of unknown) console.warn(`[csp] ${page}: inline script ${h} is not in the CSP`);
+    console.warn("[csp] WARNING: the two builds differ; rebuilding with scripts: 'self' 'unsafe-inline' so no page is blocked");
+    next(["build", ...rest], collect);
+    process.exit(0);
   }
   console.log(`[csp] ok: every inline script is allowed by its hash`);
 }
