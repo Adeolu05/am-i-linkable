@@ -1,29 +1,39 @@
-// Handing an amount from the home page to /check without telling the server.
+// Handing an amount from the home page to /check without it touching a URL.
 //
-// The amount travels in the URL fragment (/check#2.5). Browsers never send the
-// fragment in a request, so the server only learns that /check was opened.
-// /check reads it once, runs it, and clears it from the address bar.
+// The amount is kept in this module's memory, which survives the client-side
+// navigation to /check, and /check takes it once. It never enters the address
+// bar, the browser history, storage or a request. Opening /check any other way
+// (a new tab, a reload) simply starts empty.
+//
+// The two examples are fixed words, not anything the user typed, so they travel
+// in the fragment (/check#risky) and also work from a link. Any other fragment
+// is ignored: an amount in a URL would end up in the browser's history.
 
 export type HashIntent = { kind: "amount"; raw: string } | { kind: "example"; which: "risky" | "common" } | null;
 
-/** Longest fragment we accept as an amount; anything longer is ignored, not parsed. */
-const MAX_LEN = 40;
+let pending: string | null = null;
 
-export function readAmountHash(hash: string): HashIntent {
-  let s: string;
-  try {
-    s = decodeURIComponent(hash.replace(/^#/, "")).trim();
-  } catch {
-    return null; // malformed percent-encoding
-  }
-  if (s === "" || s.length > MAX_LEN) return null;
-  if (s === "risky" || s === "common") return { kind: "example", which: s };
-  return { kind: "amount", raw: s };
+/** Keeps an amount for /check to take on its next mount. */
+export function handOverAmount(value: string): void {
+  pending = value.trim();
 }
 
-/** The /check URL for an amount or an example, with the value only in the fragment. */
-export function checkHref(value: string): string {
-  return `/check#${encodeURIComponent(value.trim())}`;
+/** The amount handed over by the home page, once; null afterwards. */
+export function takeHandedAmount(): string | null {
+  const v = pending;
+  pending = null;
+  return v;
+}
+
+/** An example named in the fragment; anything else (including an amount) is null. */
+export function readAmountHash(hash: string): HashIntent {
+  const s = hash.replace(/^#/, "");
+  return s === "risky" || s === "common" ? { kind: "example", which: s } : null;
+}
+
+/** The /check URL for one of the two examples. */
+export function exampleHref(which: "risky" | "common"): string {
+  return `/check#${which}`;
 }
 
 /** Removes the fragment from the address bar without reloading or adding history. */

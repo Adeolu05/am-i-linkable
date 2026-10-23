@@ -2,8 +2,8 @@
 
 // "Before you move": everything below runs in the browser. The typed amount is
 // never sent anywhere; the only download is the public snapshot everyone gets.
-// An amount can arrive in the URL fragment (/check#2.5), which browsers never
-// send; it is read once, run, and cleared from the address bar.
+// An amount typed on the home page is handed over in memory, never in a URL;
+// the two examples arrive as /check#risky or /check#common.
 
 import {
   FEE_BAND_ZAT,
@@ -22,7 +22,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Prompt } from "@/components/Prompt";
 import { Cmd, Cursor, Ln, Win } from "@/components/Term";
-import { clearHash, readAmountHash, type HashIntent } from "@/lib/amountHash";
+import { clearHash, readAmountHash, takeHandedAmount, type HashIntent } from "@/lib/amountHash";
 import { requestCount, useRequestLog } from "@/lib/requestLog";
 import { freshness, useShields } from "@/lib/useShields";
 import { AsciiCrowdView } from "./AsciiCrowdView";
@@ -104,14 +104,18 @@ export function CheckClient() {
     );
   };
 
-  // An amount or example handed over in the fragment: read once (and on later hash changes).
+  // An amount handed over by the home page (once), or an example named in the
+  // fragment (read once, and on later hash changes). Any fragment is cleared.
   useEffect(() => {
+    const handed = takeHandedAmount();
+    if (handed !== null) {
+      setInput(handed);
+      setIntent({ kind: "amount", raw: handed });
+    }
     const read = () => {
       const i = readAmountHash(window.location.hash);
-      if (!i) return;
       clearHash();
-      if (i.kind === "amount") setInput(i.raw);
-      setIntent(i);
+      if (i) setIntent(i);
     };
     read();
     window.addEventListener("hashchange", read);

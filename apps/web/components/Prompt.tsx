@@ -1,8 +1,7 @@
 "use client";
 
 // "> [ input ] UNIT [run →]". Typing is local; the parent decides what "run" does
-// (home hands an amount to /check in the URL fragment, /check and /linked run in
-// place). Anything passed as children sits inside the form, under the prompt.
+// (home hands an amount to /check in memory, /check and /linked run in place). Anything passed as children sits inside the form, under the prompt.
 
 import { useId, type ReactNode } from "react";
 
