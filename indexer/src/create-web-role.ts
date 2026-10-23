@@ -2,6 +2,7 @@
 //
 //   pnpm --filter indexer create-web-role            # create if missing, re-apply grants
 //   pnpm --filter indexer create-web-role -- --rotate  # new password, rewrite apps/web/.env.local
+//   pnpm --filter indexer create-web-role -- --verify  # read-only: catalog + probes as the role, changes nothing
 //
 // Uses DATABASE_URL_UNPOOLED (owner, direct) for DDL and DATABASE_URL (pooled)
 // as the template for the website's connection string. The generated password
@@ -50,6 +51,11 @@ async function refused(client: pg.Client, sql: string): Promise<boolean> {
 
 async function main() {
   loadEnv();
+  if (process.argv.includes("--verify")) {
+    await verifyCatalog();
+    await verifyAsWebRole();
+    return;
+  }
   const ownerUrl = requireEnv("DATABASE_URL_UNPOOLED", "The owner's direct connection string is needed to create roles.");
   const pooledUrl = requireEnv("DATABASE_URL", "The pooled connection string is the template for the website's URL.");
   const rotate = process.argv.includes("--rotate");
@@ -116,7 +122,41 @@ async function main() {
     return;
   }
 
-  // Verify as the web role, over the pooled connection the website will use.
+  await verifyAsWebRole();
+}
+
+const yes = (b: boolean) => (b ? "yes" : "NO");
+
+/** Read-only: what the catalog says the role may do. Changes nothing. */
+async function verifyCatalog() {
+  const owner = new pg.Client({ connectionString: withStrictSsl(requireEnv("DATABASE_URL", "The pooled connection string is needed to read the catalog.")), connectionTimeoutMillis: 15_000 });
+  await owner.connect();
+  try {
+    const { rows } = await owner.query(
+      "select rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit, rolconnlimit, rolconfig from pg_roles where rolname = $1",
+      [WEB_ROLE],
+    );
+    const r = rows[0];
+    if (!r) throw new Error(`${WEB_ROLE} does not exist`);
+    console.log(`catalog: superuser ${r.rolsuper}, createdb ${r.rolcreatedb}, createrole ${r.rolcreaterole}, replication ${r.rolreplication}, bypassrls ${r.rolbypassrls}, inherit ${r.rolinherit}, connection limit ${r.rolconnlimit}`);
+    console.log(`catalog: settings ${(r.rolconfig ?? []).join(", ")}`);
+    const grants = await owner.query(
+      "select table_name, string_agg(privilege_type, ',' order by privilege_type) as privs from information_schema.role_table_grants where grantee = $1 group by table_name order by table_name",
+      [WEB_ROLE],
+    );
+    console.log(`catalog: table grants ${grants.rows.map((g) => `${g.table_name}(${g.privs})`).join(" ") || "none"}`);
+    const member = await owner.query(
+      "select r.rolname from pg_auth_members m join pg_roles r on r.oid = m.roleid join pg_roles u on u.oid = m.member where u.rolname = $1",
+      [WEB_ROLE],
+    );
+    console.log(`catalog: member of ${member.rows.map((m) => m.rolname).join(", ") || "no other role"}`);
+  } finally {
+    await owner.end();
+  }
+}
+
+/** Connects as the web role, over the pooled connection the website uses, and probes what it may do. */
+async function verifyAsWebRole() {
   const text = await readFile(ENV_FILE, "utf8");
   const url = text.split(/\r?\n/).find((l) => l.startsWith(`${ENV_VAR}=`))!.slice(ENV_VAR.length + 1);
   process.env[ENV_VAR] = url;
@@ -124,7 +164,6 @@ async function main() {
   await web.connect();
   try {
     const canSelect = await web.query("select key from snapshots limit 1").then(() => true, () => false);
-    const yes = (b: boolean) => (b ? "yes" : "NO");
     console.log(`verify: SELECT snapshots allowed: ${yes(canSelect)}`);
     console.log(`verify: INSERT refused: ${yes(await refused(web, "insert into snapshots (key, generated_at, etag, row_count, json_bytes, body_gzip) values ('_probe', now(), 'x', 0, 0, '')"))}`);
     console.log(`verify: UPDATE refused: ${yes(await refused(web, "update snapshots set etag = etag"))}`);
