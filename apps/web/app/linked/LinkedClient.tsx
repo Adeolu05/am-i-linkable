@@ -227,9 +227,9 @@ function Report({ cmd, outcome, since }: { cmd: string; outcome: Outcome; since:
   if (outcome.kind === "absent") {
     return win(
       <>
-        <Ln i={1}>{"  no shield or unshield activity for this address in the last 30 days"}</Ln>
+        <Ln i={1}>{"  No shield or unshield activity above 0.001 ZEC for this address in the last 30 days."}</Ln>
         <Ln i={2} className="text-ink-muted">
-          {"# this address did not move ZEC into or out of a shielded pool (above 0.001 ZEC) in our 30-day window. that doesn't prove anything about older activity, smaller movements, or transparent-to-transparent payments, which this tool doesn't cover."}
+          {"# that doesn't prove anything about older activity, smaller movements, or transparent-to-transparent payments, which this tool doesn't cover."}
         </Ln>
         {texNote(3)}
         {prompt(4)}
