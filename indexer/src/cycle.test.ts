@@ -15,6 +15,7 @@ import { buildShieldsSnapshot, etagFor, SHIELDS_SNAPSHOT_KEY, STATS_SNAPSHOT_KEY
 import { getMeta, writeBlocks, type Db } from "./db/store";
 import { blockToRows, type SourceBlock } from "./ingest";
 
+// Synthetic addresses: valid checksums, made from hashes of fixed labels, not anyone's wallet.
 const T1 = "t1WZY9kwRXkj68wGA1m8twRf63DkmqZuQnJ";
 const T2 = "t1coinUURxiHT5Qgt2WfGBwv476FXzijnRU";
 const NOW = new Date("2026-10-13T12:00:00Z");

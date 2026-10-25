@@ -12,6 +12,7 @@ import { type Db } from "./db/store";
 import type { SourceBlock } from "./ingest";
 import { WindowMemory } from "./memory";
 
+// Synthetic addresses: valid checksums, made from hashes of fixed labels, not anyone's wallet.
 const T1 = "t1WZY9kwRXkj68wGA1m8twRf63DkmqZuQnJ";
 const T2 = "t1coinUURxiHT5Qgt2WfGBwv476FXzijnRU";
 const START = Date.parse("2026-10-18T00:00:00Z");

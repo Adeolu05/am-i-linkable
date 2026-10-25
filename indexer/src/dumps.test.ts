@@ -6,8 +6,10 @@ import { afterAll, describe, expect, it } from "vitest";
 import { DumpParseError, emptyDumpStats, parseDumpLine, readDumpFile, rowsToBlocks } from "./dumps";
 import type { SourceBlock } from "./ingest";
 
+// Synthetic txids (SHA-256 of fixed labels).
 const TX1 = "1cd8f2c66291ea49188fa03cf85fb77ad84e5abb9c27d8c5ab82ecee6d0aaaae";
 const TX2 = "14bf8676ec39ee2512dc1a2b04fb027a1b0684f6311e37b3ea94fbfbf2f470f9";
+// Synthetic addresses: valid checksums, made from hashes of fixed labels, not anyone's wallet.
 const T1 = "t1WZY9kwRXkj68wGA1m8twRf63DkmqZuQnJ";
 
 const line = (height: number, tx: string, sortKey: number, address: string, sign: string, mag: string, currency = "zcash", flag = "1") =>

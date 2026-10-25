@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classifyTx, isTransparentAddress, type RawTx } from "./turnstile";
 
+// Synthetic addresses: valid checksums, made from hashes of fixed labels, not anyone's wallet.
 const T1 = "t1WZY9kwRXkj68wGA1m8twRf63DkmqZuQnJ";
 const T2 = "t1coinUURxiHT5Qgt2WfGBwv476FXzijnRU";
 const T3 = "t3Y1BG3MU9Ljvoj2URV85M5FavR5nL8mRBu";
