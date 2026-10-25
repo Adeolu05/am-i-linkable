@@ -1,230 +1,159 @@
 # Am I Linkable?
 
-A free tool that tells Zcash users whether their transparent <-> shielded
-movements can be linked by amount and timing, **without ever learning what they
-checked**. All matching runs in your browser. Built for ZECATHON (Core & Tooling track).
+**See whether your Zcash shielding can be traced, without telling anyone what you checked.**
 
-- **Before you move:** check a planned shield or unshield amount against recent
-  public turnstile activity, locally.
-- **Have I been linked?:** check a transparent address with a k-anonymous
-  SHA-256 prefix query (like HaveIBeenPwned), matched locally.
-- **Pool weather:** public aggregate stats for Sapling, Orchard and Ironwood.
+**Live: <https://am-i-linkable.vercel.app>** · Built for ZECATHON (Core & Tooling track) during the October 2026 build window.
 
-See [docs/SPEC.md](docs/SPEC.md), [docs/PRIVACY.md](docs/PRIVACY.md),
-[docs/PRIOR_ART.md](docs/PRIOR_ART.md) and [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+![Home page: live stats on how many recent withdrawals stood out](docs/img/home.png)
 
-**Privacy self-audit:** [docs/AUDIT.md](docs/AUDIT.md) checks every layer
-(browser, headers, hosting, data, collector, repo, dependencies) with the
-evidence for each item and the known limitations. Re-run the browser part with
-`node apps/web/scripts/privacy-audit.mjs` against a running site.
+## The problem
 
-## Layout
+Inside a shielded pool, amounts and addresses are hidden. At the edge of the
+pool they are not: when ZEC moves from a transparent address into a pool, or
+back out to one, the amount and the time are public. If 12.4 ZEC goes in and
+12.39985 ZEC comes out two hours later, anyone can pair the two, and the
+privacy the pool was meant to give is gone. This is a **round trip**.
+
+It is not a theoretical risk:
+
+- Quesnelle, [*On the linkability of Zcash transactions*](https://arxiv.org/abs/1712.01210)
+  (2017), estimated that **31.5%** of coins sent to shielded addresses were
+  likely part of a round trip.
+- Kappos, Yousaf, Maller and Meiklejohn,
+  [*An Empirical Analysis of Anonymity in Zcash*](https://www.usenix.org/conference/usenixsecurity18/presentation/kappos)
+  (USENIX Security 2018), linked most of the value withdrawn from the pool and
+  cut the anonymity set by **69.1%**, using amount and timing heuristics.
+
+Both were studies of the whole chain. Users had no way to check their own
+exposure, and asking a website "is my address linkable?" would itself leak the
+address. Am I Linkable? lets you check without telling anyone.
+
+## Two tools
+
+### Before you move: `/check`
+
+Type the amount you plan to withdraw from a shielded pool. The page downloads
+every deposit from the last 30 days (the same file for everyone) and counts, on
+your device, how many recent deposits your amount could be matched to. You get
+a risk level, a crowd plot and concrete suggestions. **A check sends nothing.**
+
+![Before you move: an amount that blends in with 55 recent deposits](docs/img/before-you-move.png)
+
+### Have I been linked?: `/linked`
+
+Paste a transparent address you have used (t1, t3 or TEX). Your browser
+hashes it with SHA-256 and downloads only the bucket its first 5 bits fall in:
+one of 32 buckets, each holding about 1,200 addresses or more (a k-anonymous
+lookup, like HaveIBeenPwned). It finds your address in the bucket locally and
+explains each deposit and withdrawal from the last 30 days in plain English,
+colour-coded by risk. **Paranoid mode** downloads all 32 buckets (about 3.1 MB),
+so not even the bucket number is revealed.
+
+![Have I been linked?: a report for a demo address](docs/img/have-i-been-linked.png)
+
+*This screenshot uses a demo address with illustrative events, so no real
+person's address appears in it. Everything else on the page is live data.*
+
+## Why it doesn't leak
+
+- **Your amount never leaves your device.** Neither does your address, nor its
+  hash: `/linked` sends only a bucket number.
+- **Every data response is identical for everyone** who asks for it, and the
+  site has no cookies, storage, accounts, analytics or third-party requests.
+  A strict Content-Security-Policy keeps it that way.
+- **Buckets hold hashes, never addresses**, and never say who was on the other
+  side of a movement, only how many movements could match.
+- **You can see it yourself:** each page shows a live network log built from
+  your browser's own record of its requests.
+
+The full model is in [docs/PRIVACY.md](docs/PRIVACY.md). Every layer was
+audited before submission (browser, headers, hosting, data, collector, repo,
+dependencies), with evidence for each item, in [docs/AUDIT.md](docs/AUDIT.md).
+The browser part is a script you can re-run: `node apps/web/scripts/privacy-audit.mjs <url>`.
+
+## Architecture
 
 ```
-apps/web/        Next.js (App Router) + Tailwind front end (placeholder for now)
-packages/core/   Pure TypeScript matching logic, tested with vitest
-indexer/         Node + TypeScript service that reads public chain data
-docs/            Spec, privacy model, prior art, build log
-data/            Local output and caches (gitignored)
+3xpl  ── public Zcash blocks (JSON API + daily dumps)
+  │
+  ▼
+collector (Node, on Railway)
+  keeps the last 30 days of shield/unshield events in memory, follows the tip,
+  handles reorgs, and builds compressed snapshot rows: the deposits file,
+  the stats and 32 address buckets (hashes only)
+  │
+  ▼
+Neon Postgres ── `snapshots` table (the website's role can only SELECT this table)
+  │
+  ▼
+Next.js on Vercel
+  serves the snapshot rows as they are: same bytes for everyone, cached
+  │
+  ▼
+your browser
+  does all the matching (packages/core) and shows exactly what it sent
 ```
 
-## Requirements
+## What's real and what isn't
 
-- Node.js 22.15 or newer (tested on 24)
-- pnpm 9 (`corepack enable` sets it up from `packageManager`)
+- **Real:** everything on the live site. It runs on Zcash mainnet data, which
+  the collector follows continuously and republishes when it changes.
+- **No wallets, keys or funds.** The tool never asks for keys, seed phrases or
+  spending authority, and it cannot move anything.
+- **Demo data only in two places:** the `/linked` screenshot above, and
+  fixture mode for local development, which serves saved copies of the public
+  snapshots.
 
-## Setup (Windows / PowerShell 7)
+## Known limitations
 
-```powershell
-git clone git@github.com:Adeolu05/am-i-linkable.git
+- **The host sees IP addresses and request times**, like any website. On
+  `/linked` it also sees the bucket number: your address is one of about 1,200.
+  Paranoid mode avoids even that. Use Tor or a VPN if you need more.
+- **30-day window.** Older activity is not covered, and "nothing found" proves
+  nothing about it. Movements of 0.001 ZEC or less (dust) are left out.
+- **One data source.** Chain data comes from 3xpl; if it is wrong or down, so
+  are we. 3xpl only ever sees our collector, never visitors.
+- **A risk signal, not proof.** The heuristics use public amounts and timing
+  only. Someone with exchange records or network data may know more; a "high
+  risk" result means a pattern exists, not that anyone has linked you.
+- **Scope.** Transparent-to-transparent payments and moves between shielded
+  pools are not checked.
+- **One open audit item.** On Vercel the CSP currently allows inline scripts
+  (scripts still load only from this site); see [docs/AUDIT.md](docs/AUDIT.md).
+
+## Run it locally
+
+Requirements: Node.js 22.15 or newer and pnpm 9 (`corepack enable`).
+
+```bash
+git clone https://github.com/Adeolu05/am-i-linkable.git
 cd am-i-linkable
 pnpm install
+node apps/web/scripts/save-fixtures.mjs   # saves the public snapshots (~4 MB, once) into data/fixtures
 ```
 
-## Run the turnstile spike
+Then start the website in **fixture mode**: no database, no keys.
 
-The spike pulls the most recent ~1,000 mainnet blocks, extracts every
-transaction that moves value between a transparent address and a shielded pool
-(Sapling, Orchard or Ironwood), prints a summary, and writes JSON to
-`data/spike/`.
-
-```powershell
-pnpm spike
+```bash
+cd apps/web
+SNAPSHOT_FIXTURES_DIR=../../data/fixtures pnpm dev
 ```
 
-Options (pass them after `--`):
+(In PowerShell: `$env:SNAPSHOT_FIXTURES_DIR = "../../data/fixtures"; pnpm dev`.)
+Open <http://localhost:3000>.
 
-```powershell
-pnpm spike -- --blocks 200        # scan fewer blocks
-pnpm spike -- --tip 3516000       # end at a fixed height, for reproducible runs
-```
+Tests and type checks: `pnpm test` and `pnpm typecheck`. Running the collector,
+deploying to Railway and Vercel, database egress and the read-only database role
+are covered in [docs/RUNNING.md](docs/RUNNING.md).
 
-Data source: the [3xpl](https://3xpl.com/data/json-api) JSON API. No key is
-needed: without one the spike uses the keyless sandbox (about 30 requests a
-minute allowed). The client stays at about 25 requests a minute and backs off on
-errors, so 1,000 blocks take around 50 minutes.
-Raw block data is cached in `data/cache/`, so if you interrupt it (Ctrl+C) and
-run it again, it resumes where it stopped and re-runs are instant.
+## More
 
-Optional settings go in `indexer/.env` (copy from `indexer/.env.example`, never commit it):
+- [docs/SPEC.md](docs/SPEC.md): how the tools and the data work
+- [docs/PRIVACY.md](docs/PRIVACY.md) and [docs/AUDIT.md](docs/AUDIT.md): privacy model and audit
+- [docs/PRIOR_ART.md](docs/PRIOR_ART.md): the research above and related tools
+- [docs/BUILD_LOG.md](docs/BUILD_LOG.md): how it was built, step by step
 
-| Variable | Purpose |
-|---|---|
-| `THREEXPL_API_KEY` | Use the keyed `api.3xpl.com` endpoint instead of the sandbox. |
-| `THREEXPL_MIN_INTERVAL_MS` | Minimum delay between requests (default 2400 ms keyless, about 25 a minute; 1500 ms keyed). |
-
-Output:
-
-- `data/spike/summary.json`: blocks scanned, transaction classes, shield and
-  unshield counts per pool, dust counts, pool migrations, round-trip
-  candidates and the bucket plan.
-- `data/spike/meta.json`: the k-anonymity bucket plan (prefix bits, smallest
-  bucket size), in the shape the site will read.
-- `data/spike/turnstile-events.json`: every turnstile event (dust flagged with `isDust`).
-- `data/spike/pool-migrations.json`: shielded -> shielded pool migrations
-  (stored, not matched in v1).
-
-## Running the collector
-
-The collector keeps a rolling 30-day window of turnstile events in Postgres
-(Neon). It reads public chain data only.
-
-### Environment variables
-
-Names only; put the values in `indexer/.env` locally (see
-`indexer/.env.example`) or in your host's secret settings. Never commit them.
-
-| Variable | Used by | Purpose |
-|---|---|---|
-| `DATABASE_URL` | backfill, start | Neon **pooled** connection string. |
-| `DATABASE_URL_UNPOOLED` | migrate | Neon **direct** connection string (Neon recommends it for migrations). |
-| `THREEXPL_API_KEY` | backfill, start | 3xpl JSON API token. Optional (falls back to the rate-limited sandbox). |
-| `THREEXPL_DUMPS_KEY` | backfill | 3xpl dumps token. Optional (without it the backfill uses the JSON API only). |
-| `INTERVAL_MINUTES` | start | Minutes between cycles (default 10). |
-| `SNAPSHOT_MIN_MINUTES` | start | Minimum minutes between rebuilds of the public snapshots (default 30). |
-| `THREEXPL_MIN_INTERVAL_MS` | backfill, start | Minimum gap between 3xpl requests (default 1500 ms with a key, 2400 ms without). |
-
-### Locally (PowerShell 7)
-
-```powershell
-pnpm install
-pnpm --filter indexer migrate     # create or upgrade the tables
-pnpm --filter indexer backfill    # last 30 days: daily dumps, then the API up to the tip
-pnpm --filter indexer start       # collector loop; Ctrl+C stops after the current cycle
-pnpm --filter indexer start -- --once   # a single cycle, then exit
-```
-
-The backfill is resumable: re-run it after an interruption and it continues.
-Downloaded dumps are cached (checksum-verified) in `data/3xpl-dumps/`.
-
-Each cycle checks the last 10 stored block hashes for reorgs, adds new blocks
-in one transaction, prunes data older than 30 days once a day, refreshes the
-bucket plan and stats in the `meta` table, and logs one line. Between cycles
-it holds no database connections, so Neon can scale to zero.
-
-### On Railway
-
-1. Create a service from this GitHub repo.
-2. Set the builder to Dockerfile with path `indexer/Dockerfile`, and leave the
-   root directory as the repo root (the image builds the pnpm workspace).
-3. Add the variables above in the service's Variables tab.
-4. Run migrations once, either locally with `pnpm --filter indexer migrate` or
-   as a one-off Railway command: `node --import tsx src/migrate.ts`.
-5. Run the backfill once (locally is fine; it writes to the same database).
-6. Deploy. The container runs `start` as a non-root user and stops cleanly on
-   SIGTERM during redeploys.
-
-To build the image yourself: `docker build -f indexer/Dockerfile -t am-i-linkable-indexer .`
-
-## Database egress (read this before running things locally)
-
-Neon's free plan meters data sent **out of** the database (5 GB a month).
-The production design keeps that small:
-
-- The collector loads the 30-day window into memory **once** at startup, then
-  updates it from the blocks it fetches from 3xpl. Snapshots are rebuilt from
-  memory (no database reads) at most every `SNAPSHOT_MIN_MINUTES`, and only
-  when something changed. The bucket plan comes back as per-prefix counts, not
-  hashes, and writes use no `RETURNING`.
-- Each web server instance checks a snapshot's ETag at most every 5 minutes
-  and downloads a body only when the ETag changes, in one encoding.
-
-**Local runs against the production database count toward the same quota.**
-A collector start reads about 4–5 MB (the one-off window load); a backfill or
-a full snapshot rebuild reads more. Avoid running them casually.
-
-**Design work without the database:** save the current snapshots once, then
-start the web app in fixture mode. It serves the saved files and never
-contacts Neon.
-
-```powershell
-pnpm --filter indexer export-fixtures      # one small read (~0.6 MB) into data/fixtures/
-$env:SNAPSHOT_FIXTURES_DIR = "../../data/fixtures"
-pnpm dev
-```
-
-`SNAPSHOT_FIXTURES_DIR` is resolved from `apps/web`. Leave it unset in production.
-
-## Website database role (read-only)
-
-The website reads Postgres as `web_readonly`, a login role that can only
-`SELECT` from `snapshots` (the pre-built, pre-compressed public payloads the
-collector writes each cycle). Its sessions are read-only by default, and it
-cannot create tables or read anything else.
-
-```powershell
-pnpm --filter indexer create-web-role
-```
-
-This creates the role (using `DATABASE_URL_UNPOOLED`), re-applies its grants,
-writes the pooled read-only connection string to `apps/web/.env.local` as
-`DATABASE_URL_READONLY` (gitignored), and verifies that SELECT works while
-INSERT, UPDATE, DELETE, CREATE and reads of every other table are refused. It never prints the password
-or the URL. Re-running it is safe; it only re-applies grants.
-
-**Rotating the password:**
-
-```powershell
-pnpm --filter indexer create-web-role -- --rotate
-```
-
-This sets a new random password, rewrites `apps/web/.env.local`, and verifies
-again. Then copy the new `DATABASE_URL_READONLY` from `apps/web/.env.local`
-into your web host's environment settings and redeploy the site. The old
-password stops working immediately, so update the host straight away.
-
-## Other commands
-
-```powershell
-pnpm test        # vitest in core and indexer
-pnpm typecheck   # tsc in every package
-pnpm dev         # web app on http://localhost:3000
-pnpm build       # web app: two builds for the CSP script hashes (see below)
-pnpm --filter indexer create-web-role -- --verify   # read-only check of the web role
-```
-
-The web app's scripts (`apps/web/scripts/next.mjs`) run Next.js with
-`NEXT_TELEMETRY_DISABLED=1`. `pnpm build` builds twice with one build id: the
-first build is read to collect the SHA-256 of each inline script, the second
-serves them in the Content-Security-Policy. If the hashes cannot be collected
-or the builds differ, or if plain `next build` runs, scripts fall back to
-`'self' 'unsafe-inline'` with a warning in the build log, so a deploy never
-ships pages its own CSP would block. `privacy-audit.mjs` fails on that
-fallback. On Vercel, keep the default build command (it runs `pnpm build` in
-`apps/web`).
-
-## Credits
-
-Public chain data comes from [3xpl](https://3xpl.com), via its free sandbox
-JSON API. Thank you to the 3xpl team.
-
-## Privacy in one paragraph
-
-The server never receives a full address or a planned amount. Data files are
-static and identical for everyone who requests them. No cookies, accounts,
-analytics or third-party requests. The app does not log IPs, but the hosting
-platform may keep access logs; see [docs/PRIVACY.md](docs/PRIVACY.md). Results
-are a risk indicator, not a guarantee.
+Public chain data from [3xpl](https://3xpl.com). Thank you to the 3xpl team.
 
 ## License
 
