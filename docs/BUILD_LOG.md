@@ -468,3 +468,28 @@ one open item is the CSP on Vercel: the build script runs there, but its hash
 step falls back, so production serves `script-src 'self' 'unsafe-inline'`
 until the `[csp]` lines in the Vercel build log show why (Vercel builds
 through its own adapter, which changes the output, e.g. `/_next/static/immutable/`).
+
+## 2026-10-25: Pre-submission polish
+
+- `/linked` with no activity now says "No shield or unshield activity above
+  0.001 ZEC for this address in the last 30 days." and keeps the note that it
+  proves nothing about older activity.
+- **README rewritten for judges:** pitch, live link, the round-trip problem
+  with the two papers, both tools with screenshots, why it doesn't leak,
+  architecture, what's real, limitations, and a local run in fixture mode.
+  Operator detail (collector, Railway, egress, database role, spike) moved to
+  `docs/RUNNING.md`.
+- **Screenshots** in `docs/img`, taken locally from fixtures. The `/linked`
+  one uses a synthetic demo address with illustrative events, so no real
+  address and no real txid appear in any image.
+- **Real addresses removed from the tree.** Test constants copied from real 3xpl
+  block data during the spike (three addresses, plus two txids) and the
+  address in `privacy-audit.mjs` are now synthetic, valid-checksum values made
+  from hashes of fixed labels. They remain in earlier commits until history is
+  rewritten.
+- `apps/web/scripts/save-fixtures.mjs` saves the public snapshots (stats,
+  deposits, all buckets: about 4 MB) from any running copy of the site, so
+  fixture mode works without database access or keys. Checked against a local
+  server: all 34 files identical.
+
+Tests: 128 (core 51, indexer 51, web 26). Local browser audit: 33 of 33.
