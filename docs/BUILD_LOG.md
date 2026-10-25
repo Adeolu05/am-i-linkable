@@ -463,7 +463,7 @@ What changed:
 Tests: 128 (core 51, indexer 51, web 26). gitleaks over all refs and the
 stash: no leaks.
 
-Live check (once, `--light`, deployment of `94b05b2`): 26 of 27 passed. The
+Live check (once, `--light`, deployment of `649d894`): 26 of 27 passed. The
 one open item is the CSP on Vercel: the build script runs there, but its hash
 step falls back, so production serves `script-src 'self' 'unsafe-inline'`
 until the `[csp]` lines in the Vercel build log show why (Vercel builds
@@ -493,3 +493,18 @@ through its own adapter, which changes the output, e.g. `/_next/static/immutable
   server: all 34 files identical.
 
 Tests: 128 (core 51, indexer 51, web 26). Local browser audit: 33 of 33.
+
+## 2026-10-25: History rewritten to remove real addresses
+
+While the repository was still private, its history was rewritten with
+`git filter-repo --replace-text` so that no commit contains the real addresses
+and txids that had been copied from chain data into tests (see the 25 October
+entry above), or the earlier audit wording that named the ignored tool files.
+Each real string was replaced with its synthetic counterpart. Every commit
+keeps its author, committer, dates and message (`git log --format='%an %ae %ad %cd'`
+identical before and after for all 108 commits); commit IDs changed from the
+13 October spike onwards, and the IDs quoted in these docs were updated. After
+the rewrite: none of the real strings in `git log -p --all`, gitleaks clean
+over the full history, the HEAD tree byte-identical to before, and tests, type
+checks and the build pass. A full backup bundle of the old history was kept
+outside the repository.
